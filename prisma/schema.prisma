@@ -1,0 +1,67 @@
+// Prisma schema — PostgreSQL datasource and models live here.
+// Run: npx prisma migrate dev
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id             Int      @id @default(autoincrement())
+  name           String
+  email          String   @unique
+  password       String
+  role           Role
+  specialization String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  patientAppointments Appointment[] @relation("PatientAppointments")
+  doctorAppointments  Appointment[] @relation("DoctorAppointments")
+  calendarSlots       Calendar[]
+}
+
+model Calendar {
+  id        Int      @id @default(autoincrement())
+  doctorId  Int
+  startTime DateTime
+  endTime   DateTime
+  isBooked  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  doctor       User           @relation(fields: [doctorId], references: [id])
+  appointments Appointment[]
+}
+
+model Appointment {
+  id         Int               @id @default(autoincrement())
+  patientId  Int
+  doctorId   Int
+  calendarId Int
+  status     AppointmentStatus @default(CONFIRMED)
+  reason     String
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  patient  User     @relation("PatientAppointments", fields: [patientId], references: [id])
+  doctor   User     @relation("DoctorAppointments", fields: [doctorId], references: [id])
+  calendar Calendar @relation(fields: [calendarId], references: [id])
+}
+
+enum Role {
+  PATIENT
+  DOCTOR
+  RECEPTIONIST
+  ADMIN
+}
+
+enum AppointmentStatus {
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
