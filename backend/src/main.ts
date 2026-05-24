@@ -3,16 +3,21 @@ import "reflect-metadata";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import type { Request, Response } from "express";
+import dotenv from "dotenv";
 import { join, resolve } from "node:path";
 
 import { AppModule } from "./app.module";
 
 const DEFAULT_PORT = 4000;
+const projectRoot = resolve(__dirname, "..", "..");
+
+dotenv.config({
+  path: join(projectRoot, ".env"),
+});
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const port = Number(process.env.BACKEND_PORT ?? process.env.PORT ?? DEFAULT_PORT);
-  const projectRoot = resolve(__dirname, "..", "..");
   const openApiPath = join(projectRoot, "docs", "openapi.yaml");
 
   app.enableCors();

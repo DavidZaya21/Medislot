@@ -1,9 +1,16 @@
-import { Controller, NotImplementedException, Post } from "@nestjs/common";
+import { Body, Controller, Inject, Post } from "@nestjs/common";
+
+import { CreateSessionDto } from "./sessions.dto";
+import { SessionsService } from "./sessions.service";
 
 @Controller("sessions")
 export class SessionsController {
+  constructor(@Inject(SessionsService) private readonly sessionsService: SessionsService) {
+    this.createSession = this.createSession.bind(this);
+  }
+
   @Post()
-  createSession() {
-    throw new NotImplementedException("JWT login flow has not been implemented yet.");
+  createSession(@Body() body: CreateSessionDto) {
+    return this.sessionsService.createSession(body.email, body.password);
   }
 }

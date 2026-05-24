@@ -1,37 +1,72 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
-  NotImplementedException,
+  Inject,
   Param,
+  ParseIntPipe,
   Post,
+  Query,
   Put,
+  UseGuards,
 } from "@nestjs/common";
+import { Role } from "@prisma/client";
+
+import { AuthGuard } from "../auth/auth.guard";
+import { RolesGuard } from "../auth/roles.guard";
+import { Roles } from "../auth/roles.decorator";
+import {
+  AppointmentListQueryDto,
+  CreateAppointmentDto,
+  UpdateAppointmentDto,
+} from "./appointments.dto";
+import { AppointmentsService } from "./appointments.service";
 
 @Controller("appointments")
+@UseGuards(AuthGuard, RolesGuard)
 export class AppointmentsController {
+  constructor(
+    @Inject(AppointmentsService)
+    private readonly appointmentsService: AppointmentsService,
+  ) {
+    this.listAppointments = this.listAppointments.bind(this);
+    this.requestAppointment = this.requestAppointment.bind(this);
+    this.getAppointmentById = this.getAppointmentById.bind(this);
+    this.reviewAppointment = this.reviewAppointment.bind(this);
+    this.deleteAppointment = this.deleteAppointment.bind(this);
+  }
+
   @Get()
-  listAppointments() {
-    throw new NotImplementedException("Appointment listing has not been implemented yet.");
+  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR)
+  listAppointments(@Query() query: AppointmentListQueryDto) {
+    return this.appointmentsService.listAppointments(query.status);
   }
 
   @Post()
-  requestAppointment() {
-    throw new NotImplementedException("Appointment creation has not been implemented yet.");
+  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.PATIENT)
+  requestAppointment(@Body() body: CreateAppointmentDto) {
+    return this.appointmentsService.requestAppointment(body);
   }
 
   @Get(":appointmentId")
-  getAppointmentById(@Param("appointmentId") _appointmentId: string) {
-    throw new NotImplementedException("Appointment retrieval has not been implemented yet.");
+  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR, Role.PATIENT)
+  getAppointmentById(@Param("appointmentId", ParseIntPipe) appointmentId: number) {
+    return this.appointmentsService.getAppointmentById(appointmentId);
   }
 
   @Put(":appointmentId")
-  reviewAppointment(@Param("appointmentId") _appointmentId: string) {
-    throw new NotImplementedException("Appointment review has not been implemented yet.");
+  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR)
+  reviewAppointment(
+    @Param("appointmentId", ParseIntPipe) appointmentId: number,
+    @Body() body: UpdateAppointmentDto,
+  ) {
+    return this.appointmentsService.reviewAppointment(appointmentId, body);
   }
 
   @Delete(":appointmentId")
-  deleteAppointment(@Param("appointmentId") _appointmentId: string) {
-    throw new NotImplementedException("Appointment deletion has not been implemented yet.");
+  @Roles(Role.ADMIN, Role.RECEPTIONIST)
+  async deleteAppointment(@Param("appointmentId", ParseIntPipe) appointmentId: number) {
+    await this.appointmentsService.deleteAppointment(appointmentId);
   }
 }

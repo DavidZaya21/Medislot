@@ -17,6 +17,7 @@
     "lint": "npm run lint:backend && npm run lint:frontend",
     "lint:backend": "npm --workspace backend run lint",
     "lint:frontend": "npm --workspace frontend run lint",
+    "test:backend": "npm --workspace backend run test",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev"
   },
