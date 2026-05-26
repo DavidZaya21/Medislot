@@ -22,7 +22,9 @@ export class ReceptionistsService {
 
       return serializeUser(user);
     } catch (error) {
-      mapPrismaError(error);
+      mapPrismaError(error, {
+        uniqueConstraintMessage: "Email is already registered",
+      });
     }
   }
 }

@@ -23,14 +23,7 @@ import { DoctorsService } from "./doctors.service";
 @Controller("doctors")
 @UseGuards(AuthGuard, RolesGuard)
 export class DoctorsController {
-  constructor(@Inject(DoctorsService) private readonly doctorsService: DoctorsService) {
-    this.listDoctors = this.listDoctors.bind(this);
-    this.createDoctor = this.createDoctor.bind(this);
-    this.getDoctorById = this.getDoctorById.bind(this);
-    this.updateDoctorById = this.updateDoctorById.bind(this);
-    this.deleteDoctorById = this.deleteDoctorById.bind(this);
-    this.listAppointmentsByDoctor = this.listAppointmentsByDoctor.bind(this);
-  }
+  constructor(@Inject(DoctorsService) private readonly doctorsService: DoctorsService) {}
 
   @Get()
   listDoctors(@Query() query: DoctorListQueryDto) {

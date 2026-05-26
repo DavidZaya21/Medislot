@@ -1,114 +1,219 @@
 # Medislot
 
-Medislot is a full-stack medical appointment scheduling project.
+Medislot is a full-stack medical appointment scheduling project. It includes a NestJS REST API, a Next.js frontend, Prisma migrations, and an OpenAPI contract served through Swagger UI.
 
-## Project Idea
+## Tech Stack
 
-The system supports four roles:
+- Backend: NestJS, TypeScript
+- Frontend: Next.js, TypeScript
+- Database: Supabase PostgreSQL
+- ORM: Prisma
+- Authentication: JWT bearer tokens
+- API docs: OpenAPI YAML and Swagger UI
+
+## Repository Structure
+
+- `backend/` - NestJS API application
+- `frontend/` - Next.js application
+- `prisma/` - Prisma schema and migrations
+- `docs/openapi.yaml` - OpenAPI contract used by Swagger UI
+
+## Roles
+
+The API supports these roles:
 
 - `PATIENT`
 - `DOCTOR`
 - `RECEPTIONIST`
 - `ADMIN`
 
-Main workflow:
+Public registration only creates `PATIENT` accounts. Admin users create doctor and receptionist accounts through protected API endpoints.
 
-- Patients register themselves
-- Public registration creates only `PATIENT` accounts
-- Admin creates doctor and receptionist accounts
-- Patients choose a free calendar slot when making an appointment
-- The system checks slot availability automatically and creates a `CONFIRMED` appointment
-- Receptionists can manually create phone-booked appointments
-- Receptionists manage daily operations such as cancellations, patient check-in, and `NO_SHOW` marking
-- Doctors view confirmed appointments and finished visits can be marked as `COMPLETED`
+## Configuration
 
-## Technical Stack
+Create a `.env` file in the repository root. You can start from `.env.example`:
 
-- **Frontend:** Next.js + TypeScript
-- **Backend:** NestJS + TypeScript
-- **Database:** Supabase PostgreSQL
-- **ORM:** Prisma
-- **Authentication:** JWT
-- **API Spec:** OpenAPI YAML
+```bash
+cp .env.example .env
+```
 
-## Repository Structure
+Required variables:
 
-- `frontend/` - Next.js application for patient and staff interfaces
-- `backend/` - NestJS API application
-- `prisma/` - shared Prisma schema and migrations
-- `docs/openapi.yaml` - API contract used in Swagger UI
+```bash
+DATABASE_URL="postgresql://..."
+```
 
-## Database Design
+`DATABASE_URL` should point to your Supabase PostgreSQL database. 
 
-The database currently uses 3 main tables:
+## Install
 
-- `User`
-- `Calendar`
-- `Appointment`
+Use Node.js `v22.12.0`. The repository includes `.nvmrc`, so you can switch to the expected version with:
 
-Key design ideas:
+```bash
+nvm use
+```
 
-- all accounts are stored in `User`
-- doctors use `role = DOCTOR` and store `specialization` directly in `User`
-- `Calendar` stores doctor time slots and availability
-- appointments connect a patient, a doctor, and one selected calendar slot
-- role-based access is controlled by the `role` column in `User`
-
-## API Design
-
-The OpenAPI file is located at:
-
-- [docs/openapi.yaml](/Users/davidzayar/Desktop/Medislot/docs/openapi.yaml)
-
-The API is designed around resource-based endpoints such as:
-
-- `/users`
-- `/doctors`
-- `/receptionists`
-- `/appointments`
-- `/sessions`
-
-Filtering should be done with query parameters where appropriate, for example:
-
-- `/appointments?status=CONFIRMED`
-
-## Development Commands
-
-Install dependencies:
+Then install workspace dependencies:
 
 ```bash
 npm install
 ```
 
-Run the NestJS backend:
+## Database Setup
+
+Generate Prisma client:
+
+```bash
+npm run prisma:generate
+```
+
+Apply migrations to the configured database:
+
+```bash
+npm run prisma:migrate
+```
+
+## Running The App
+
+Start the backend in development mode:
 
 ```bash
 npm run dev:backend
 ```
 
-Run the Next.js frontend:
+Start the frontend:
 
 ```bash
 npm run dev:frontend
 ```
 
-Build the full workspace:
+Build everything:
 
 ```bash
 npm run build
 ```
 
-## Prisma Commands
+Run the compiled backend:
 
 ```bash
-npm run prisma:migrate -- --name init
-npm run prisma:generate
+npm run build:backend
+npm --workspace backend run start
 ```
 
-## Development Notes
+## API Documentation
 
-- Swagger/OpenAPI is served by the NestJS backend at `/docs`
-- Prisma migrations should be used to create and update the database schema
-- Tables should not be created manually
-- Backend authorization will control which roles can access which endpoints
-- The frontend and backend are separated so the UI can evolve independently from the API
+When the backend is running, Swagger UI is available at:
+
+```text
+http://localhost:4000/docs
+```
+
+The raw OpenAPI file is available at:
+
+```text
+http://localhost:4000/openapi.yaml
+```
+
+## Authentication
+
+Create a session by calling:
+
+```http
+POST /sessions
+```
+
+Example body:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "password123"
+}
+```
+
+Use the returned token on protected endpoints:
+
+```http
+Authorization: Bearer <accessToken>
+```
+
+Expected behavior:
+
+- Missing or invalid token returns `401 Unauthorized`
+- Valid token with the wrong role returns `403 Forbidden`
+- `GET /users` is allowed for `ADMIN`, `RECEPTIONIST`, and `DOCTOR`
+- `GET /users` is blocked for `PATIENT`
+- Patients can only access their own user profile and their own appointment list
+- `GET /doctors` is allowed for patients so they can browse doctors before booking
+
+## Account Creation Notes
+
+Patient accounts are created publicly through:
+
+```http
+POST /users
+```
+
+Doctor accounts are created by admins through:
+
+```http
+POST /doctors
+```
+
+Receptionist accounts are created by admins through:
+
+```http
+POST /receptionists
+```
+
+Duplicate emails return:
+
+```json
+{
+  "message": "Email is already registered",
+  "code": "CONFLICT"
+}
+```
+
+## Main Workflows
+
+- Patients register themselves
+- Patients browse doctors and available calendar slots
+- Patients book appointments into free calendar slots
+- The API checks slot availability before creating appointments
+- Doctors manage their calendar slots
+- Receptionists can create and manage appointments
+- Admins manage staff accounts
+
+## Testing And Validation
+
+Run backend tests:
+
+```bash
+npm run test:backend
+```
+
+Run backend type checks:
+
+```bash
+npm run lint:backend
+```
+
+Run all configured checks:
+
+```bash
+npm run lint
+npm run build
+```
+
+## Useful Endpoints
+
+- `GET /health` - health check
+- `POST /sessions` - login and receive a JWT
+- `POST /users` - register a patient
+- `GET /users` - list users for staff roles
+- `GET /doctors` - list doctors
+- `POST /doctors` - create a doctor as admin
+- `POST /receptionists` - create a receptionist as admin
+- `GET /calendars` - list calendar slots
+- `POST /appointments` - create an appointment

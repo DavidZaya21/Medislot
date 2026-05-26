@@ -43,9 +43,15 @@ export function toForbidden(message = "You do not have permission to perform thi
   });
 }
 
-export function mapPrismaError(error: unknown): never {
+type PrismaErrorMappingOptions = {
+  uniqueConstraintMessage?: string;
+};
+
+export function mapPrismaError(error: unknown, options: PrismaErrorMappingOptions = {}): never {
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-    throw toConflict("Resource already exists or violates a uniqueness constraint");
+    throw toConflict(
+      options.uniqueConstraintMessage ?? "Resource already exists or violates a uniqueness constraint",
+    );
   }
   throw error;
 }

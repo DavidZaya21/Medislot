@@ -44,7 +44,9 @@ export class DoctorsService {
       });
       return serializeDoctor(user);
     } catch (error) {
-      mapPrismaError(error);
+      mapPrismaError(error, {
+        uniqueConstraintMessage: "Email is already registered",
+      });
     }
   }
 

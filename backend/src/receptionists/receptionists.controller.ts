@@ -13,9 +13,7 @@ export class ReceptionistsController {
   constructor(
     @Inject(ReceptionistsService)
     private readonly receptionistsService: ReceptionistsService,
-  ) {
-    this.createReceptionist = this.createReceptionist.bind(this);
-  }
+  ) {}
 
   @Post()
   @Roles(Role.ADMIN)

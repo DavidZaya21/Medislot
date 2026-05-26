@@ -25,13 +25,7 @@ export class CalendarsController {
   constructor(
     @Inject(CalendarsService)
     private readonly calendarsService: CalendarsService,
-  ) {
-    this.listCalendarSlots = this.listCalendarSlots.bind(this);
-    this.createCalendarSlot = this.createCalendarSlot.bind(this);
-    this.getCalendarSlotById = this.getCalendarSlotById.bind(this);
-    this.updateCalendarSlotById = this.updateCalendarSlotById.bind(this);
-    this.deleteCalendarSlotById = this.deleteCalendarSlotById.bind(this);
-  }
+  ) {}
 
   @Get()
   listCalendarSlots(@Query() query: CalendarListQueryDto) {

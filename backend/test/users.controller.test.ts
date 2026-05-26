@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AppointmentStatus, Role } from "@prisma/client";
 
+import type { AuthUser } from "../src/auth/auth.types";
 import { UsersController } from "../src/users/users.controller";
 import { UsersService } from "../src/users/users.service";
 import { createSpy } from "./helpers";
+
+const adminUser: AuthUser = { userId: 1, role: Role.ADMIN };
 
 test("POST /users registers a patient", async () => {
   const response = { id: 1, name: "Anna Kowalska" };
@@ -41,10 +44,10 @@ test("GET /users/:userId returns a user", async () => {
   const service = { getUserById: getUserById.fn } as unknown as UsersService;
   const controller = new UsersController(service);
 
-  const result = await controller.getUserById(7);
+  const result = await controller.getUserById(7, adminUser);
 
   assert.deepStrictEqual(result, response);
-  assert.deepStrictEqual(getUserById.calls, [[7]]);
+  assert.deepStrictEqual(getUserById.calls, [[7, adminUser]]);
 });
 
 test("PUT /users/:userId updates a user", async () => {
@@ -54,10 +57,10 @@ test("PUT /users/:userId updates a user", async () => {
   const controller = new UsersController(service);
   const body = { name: "Updated Anna", email: "updated@example.com" };
 
-  const result = await controller.updateUserById(7, body);
+  const result = await controller.updateUserById(7, body, adminUser);
 
   assert.deepStrictEqual(result, response);
-  assert.deepStrictEqual(updateUserById.calls, [[7, body]]);
+  assert.deepStrictEqual(updateUserById.calls, [[7, body, adminUser]]);
 });
 
 test("DELETE /users/:userId deletes a user", async () => {
@@ -82,8 +85,8 @@ test("GET /users/:userId/appointments lists user appointments", async () => {
 
   const result = await controller.listAppointmentsByUser(7, {
     status: AppointmentStatus.CONFIRMED,
-  });
+  }, adminUser);
 
   assert.deepStrictEqual(result, response);
-  assert.deepStrictEqual(listAppointmentsByUser.calls, [[7, AppointmentStatus.CONFIRMED]]);
+  assert.deepStrictEqual(listAppointmentsByUser.calls, [[7, AppointmentStatus.CONFIRMED, adminUser]]);
 });

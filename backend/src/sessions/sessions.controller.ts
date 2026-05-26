@@ -5,9 +5,7 @@ import { SessionsService } from "./sessions.service";
 
 @Controller("sessions")
 export class SessionsController {
-  constructor(@Inject(SessionsService) private readonly sessionsService: SessionsService) {
-    this.createSession = this.createSession.bind(this);
-  }
+  constructor(@Inject(SessionsService) private readonly sessionsService: SessionsService) {}
 
   @Post()
   createSession(@Body() body: CreateSessionDto) {

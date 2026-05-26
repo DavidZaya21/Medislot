@@ -1,12 +1,9 @@
-import {
-  ConflictException,
-  Inject,
-  Injectable,
-} from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import bcrypt from "bcrypt";
 import type { AppointmentStatus, Role, User } from "@prisma/client";
 
-import { mapPrismaError, toNotFound } from "../common/prisma-errors";
+import type { AuthUser } from "../auth/auth.types";
+import { mapPrismaError, toForbidden, toNotFound } from "../common/prisma-errors";
 import { serializeAppointment, serializeUser } from "../common/serializers";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -27,7 +24,9 @@ export class UsersService {
 
       return serializeUser(user);
     } catch (error) {
-      mapPrismaError(error);
+      mapPrismaError(error, {
+        uniqueConstraintMessage: "Email is already registered",
+      });
     }
   }
 
@@ -39,13 +38,21 @@ export class UsersService {
     return { data: users.map(serializeUser) };
   }
 
-  async getUserById(userId: number) {
+  async getUserById(userId: number, currentUser: AuthUser) {
+    this.ensureUserScopeAccess(userId, currentUser);
+
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw toNotFound("User");
     return serializeUser(user);
   }
 
-  async updateUserById(userId: number, input: { name: string; email: string }) {
+  async updateUserById(
+    userId: number,
+    input: { name: string; email: string },
+    currentUser: AuthUser,
+  ) {
+    this.ensureUserScopeAccess(userId, currentUser);
+
     try {
       const user = await this.prisma.user.update({
         where: { id: userId },
@@ -79,7 +86,12 @@ export class UsersService {
     });
   }
 
-  async listAppointmentsByUser(userId: number, status?: AppointmentStatus) {
+  async listAppointmentsByUser(
+    userId: number,
+    status: AppointmentStatus | undefined,
+    currentUser: AuthUser,
+  ) {
+    this.ensureUserScopeAccess(userId, currentUser);
     await this.ensureUserExists(userId);
     const appointments = await this.prisma.appointment.findMany({
       where: {
@@ -100,6 +112,12 @@ export class UsersService {
   private async ensureUserExists(userId: number) {
     const exists = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
     if (!exists) throw toNotFound("User");
+  }
+
+  private ensureUserScopeAccess(userId: number, currentUser: AuthUser) {
+    if (currentUser.role === "PATIENT" && currentUser.userId !== userId) {
+      throw toForbidden("Patients can only access their own user information");
+    }
   }
 }
 

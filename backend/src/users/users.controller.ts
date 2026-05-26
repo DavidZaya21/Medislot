@@ -14,8 +14,10 @@ import {
 import { Role } from "@prisma/client";
 
 import { AuthGuard } from "../auth/auth.guard";
+import { CurrentUser } from "../auth/current-user.decorator";
 import { RolesGuard } from "../auth/roles.guard";
 import { Roles } from "../auth/roles.decorator";
+import type { AuthUser } from "../auth/auth.types";
 import { AppointmentListQueryDto } from "../appointments/appointments.dto";
 import {
   PatientRegistrationDto,
@@ -26,14 +28,7 @@ import { UsersService } from "./users.service";
 
 @Controller("users")
 export class UsersController {
-  constructor(@Inject(UsersService) private readonly usersService: UsersService) {
-    this.registerPatient = this.registerPatient.bind(this);
-    this.listUsers = this.listUsers.bind(this);
-    this.getUserById = this.getUserById.bind(this);
-    this.updateUserById = this.updateUserById.bind(this);
-    this.deleteUserById = this.deleteUserById.bind(this);
-    this.listAppointmentsByUser = this.listAppointmentsByUser.bind(this);
-  }
+  constructor(@Inject(UsersService) private readonly usersService: UsersService) {}
 
   @Post()
   registerPatient(@Body() body: PatientRegistrationDto) {
@@ -42,7 +37,7 @@ export class UsersController {
 
   @Get()
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.RECEPTIONIST)
+  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR)
   listUsers(@Query() query: UserListQueryDto) {
     return this.usersService.listUsers(query.role);
   }
@@ -50,8 +45,11 @@ export class UsersController {
   @Get(":userId")
   @UseGuards(AuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR, Role.PATIENT)
-  getUserById(@Param("userId", ParseIntPipe) userId: number) {
-    return this.usersService.getUserById(userId);
+  getUserById(
+    @Param("userId", ParseIntPipe) userId: number,
+    @CurrentUser() currentUser: AuthUser,
+  ) {
+    return this.usersService.getUserById(userId, currentUser);
   }
 
   @Put(":userId")
@@ -60,8 +58,9 @@ export class UsersController {
   updateUserById(
     @Param("userId", ParseIntPipe) userId: number,
     @Body() body: UserUpdateDto,
+    @CurrentUser() currentUser: AuthUser,
   ) {
-    return this.usersService.updateUserById(userId, body);
+    return this.usersService.updateUserById(userId, body, currentUser);
   }
 
   @Delete(":userId")
@@ -77,7 +76,8 @@ export class UsersController {
   listAppointmentsByUser(
     @Param("userId", ParseIntPipe) userId: number,
     @Query() query: AppointmentListQueryDto,
+    @CurrentUser() currentUser: AuthUser,
   ) {
-    return this.usersService.listAppointmentsByUser(userId, query.status);
+    return this.usersService.listAppointmentsByUser(userId, query.status, currentUser);
   }
 }

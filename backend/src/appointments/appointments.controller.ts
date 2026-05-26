@@ -29,13 +29,7 @@ export class AppointmentsController {
   constructor(
     @Inject(AppointmentsService)
     private readonly appointmentsService: AppointmentsService,
-  ) {
-    this.listAppointments = this.listAppointments.bind(this);
-    this.requestAppointment = this.requestAppointment.bind(this);
-    this.getAppointmentById = this.getAppointmentById.bind(this);
-    this.reviewAppointment = this.reviewAppointment.bind(this);
-    this.deleteAppointment = this.deleteAppointment.bind(this);
-  }
+  ) {}
 
   @Get()
   @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR)
