@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import bcrypt from "bcrypt";
+import { Prisma } from "@prisma/client";
 import type { AppointmentStatus, Role, User } from "@prisma/client";
 
 import type { AuthUser } from "../auth/auth.types";
@@ -30,12 +31,45 @@ export class UsersService {
     }
   }
 
-  async listUsers(role?: Role) {
-    const users = await this.prisma.user.findMany({
-      where: role ? { role } : undefined,
-      orderBy: { id: "asc" },
-    });
-    return { data: users.map(serializeUser) };
+  async listUsers(query: {
+    role?: Role;
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  } = {}) {
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 10;
+    const where: Prisma.UserWhereInput = {
+      ...(query.role ? { role: query.role } : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { name: { contains: query.search, mode: "insensitive" } },
+              { email: { contains: query.search, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    };
+
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        orderBy: { id: "asc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return {
+      data: users.map(serializeUser),
+      meta: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
   }
 
   async getUserById(userId: number, currentUser: AuthUser) {

@@ -143,6 +143,7 @@ Expected behavior:
 - Valid token with the wrong role returns `403 Forbidden`
 - `GET /users` is allowed for `ADMIN`, `RECEPTIONIST`, and `DOCTOR`
 - `GET /users` is blocked for `PATIENT`
+- `GET /users` supports `role`, `search`, `page`, and `pageSize` query parameters for filtered pagination
 - Patients can only access their own user profile and their own appointment list
 - `GET /doctors` is allowed for patients so they can browse doctors before booking
 
@@ -211,7 +212,7 @@ npm run build
 - `GET /health` - health check
 - `POST /sessions` - login and receive a JWT
 - `POST /users` - register a patient
-- `GET /users` - list users for staff roles
+- `GET /users` - list users for staff roles with pagination and filtering
 - `GET /doctors` - list doctors
 - `POST /doctors` - create a doctor as admin
 - `POST /receptionists` - create a receptionist as admin
