@@ -1,90 +1,84 @@
-const roleCards = [
-  {
-    title: "Patient",
-    description: "Registers, logs in, and requests appointments that start in PENDING state.",
-  },
-  {
-    title: "Receptionist",
-    description: "Reviews pending requests and confirms or cancels them after checking availability.",
-  },
-  {
-    title: "Doctor",
-    description: "Views confirmed appointments and manages their schedule from the staff side.",
-  },
-  {
-    title: "Admin",
-    description: "Creates doctor and receptionist accounts and controls internal access.",
-  },
-];
+"use client";
 
-const quickLinks = [
-  { label: "Patient registration", href: "/register" },
-  { label: "Login", href: "/login" },
-  { label: "Doctor dashboard", href: "/doctor/appointments" },
-  { label: "Reception desk", href: "/receptionist/appointments" },
-  { label: "Admin staff tools", href: "/admin/staff" },
-];
+import Link from "next/link";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+
+import { AppShell, PageHeader, RequireAuth } from "./components/AppShell";
+import { useAuth } from "./lib/useAuth";
+import LoginPage from "./login/page";
+
+const roleCopy = {
+  ADMIN: {
+    title: "Manage the whole clinic from one operational view.",
+    cards: [
+      ["Users", "Filter, paginate, and review all user accounts.", "/users"],
+      ["Receptionists", "Create and maintain receptionist accounts.", "/receptionists"],
+      ["Doctors", "Create, edit, and review doctor accounts.", "/doctors"],
+      ["Appointments", "Review, complete, or cancel appointments.", "/appointments"],
+    ],
+  },
+  RECEPTIONIST: {
+    title: "Keep the appointment desk moving.",
+    cards: [
+      ["Users", "Find patients, doctors, and staff quickly.", "/users"],
+      ["Appointments", "Create and update appointment status.", "/appointments"],
+      ["Doctors", "Browse doctors and specializations.", "/doctors"],
+    ],
+  },
+  DOCTOR: {
+    title: "Review appointments and manage your availability.",
+    cards: [
+      ["Appointments", "See appointment requests and visit status.", "/appointments"],
+      ["Calendars", "Create and update available slots.", "/calendars"],
+      ["Users", "Look up clinic users when needed.", "/users"],
+    ],
+  },
+  PATIENT: {
+    title: "Find care and manage your appointments.",
+    cards: [
+      ["Doctors", "Find the right doctor by specialization.", "/doctors"],
+      ["Calendars", "Pick an available doctor slot.", "/calendars"],
+      ["Appointments", "Book and review your appointments.", "/appointments"],
+    ],
+  },
+};
 
 export default function HomePage() {
+  const { ready, isAuthenticated } = useAuth();
+
+  if (!ready || !isAuthenticated) return <LoginPage />;
+
   return (
-    <main className="shell">
-      <section className="hero">
-        <div className="hero-copy">
-          <p className="eyebrow">Medislot</p>
-          <h1>Next.js frontend for a role-based medical scheduling system.</h1>
-          <p className="lede">
-            This workspace now separates the UI from the API. Next.js handles the patient and
-            staff views, while the NestJS backend exposes the REST contract and Swagger docs.
-          </p>
-          <div className="actions">
-            <a className="button button-primary" href={process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000/docs"}>
-              Open API Docs
-            </a>
-            <a className="button button-secondary" href="/register">
-              View Patient Flow
-            </a>
-          </div>
-        </div>
-        <div className="hero-panel">
-          <h2>Core workflow</h2>
-          <ol>
-            <li>Patient submits an appointment request.</li>
-            <li>Request is stored with status PENDING.</li>
-            <li>Receptionist reviews availability.</li>
-            <li>Doctor sees only confirmed appointments.</li>
-          </ol>
-        </div>
-      </section>
+    <AppShell>
+      <RequireAuth>
+        <Dashboard />
+      </RequireAuth>
+    </AppShell>
+  );
+}
 
-      <section className="section">
-        <div className="section-heading">
-          <p className="eyebrow">Roles</p>
-          <h2>Access is driven by the user role stored in the database.</h2>
-        </div>
-        <div className="grid">
-          {roleCards.map((card) => (
-            <article className="card" key={card.title}>
-              <h3>{card.title}</h3>
-              <p>{card.description}</p>
-            </article>
-          ))}
-        </div>
-      </section>
+function Dashboard() {
+  const { role } = useAuth();
+  const router = useRouter();
+  const content = role ? roleCopy[role] : null;
 
-      <section className="section">
-        <div className="section-heading">
-          <p className="eyebrow">Screens</p>
-          <h2>Initial route map</h2>
-        </div>
-        <div className="link-list">
-          {quickLinks.map((link) => (
-            <a className="link-card" href={link.href} key={link.href}>
-              <span>{link.label}</span>
-              <span aria-hidden="true">→</span>
-            </a>
-          ))}
-        </div>
+  useEffect(() => {
+    if (role === "PATIENT") router.replace("/doctors");
+  }, [role, router]);
+
+  return (
+    <>
+      <PageHeader eyebrow="Dashboard" title={content?.title ?? "Welcome to Medislot"} />
+
+      <section className="action-grid">
+        {content?.cards.map(([title, description, href]) => (
+          <Link className="action-card" href={href} key={href}>
+            <strong>{title}</strong>
+            <span>{description}</span>
+          </Link>
+        ))}
       </section>
-    </main>
+    </>
   );
 }
