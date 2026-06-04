@@ -39,7 +39,7 @@ test("user listing paginates after applying role and search filters", async () =
     search: "anna",
     page: 2,
     pageSize: 5,
-  });
+  }, { userId: 1, role: Role.ADMIN });
 
   assert.deepStrictEqual(calls, [
     {
@@ -91,12 +91,70 @@ test("user listing paginates after applying role and search filters", async () =
   });
 });
 
+test("receptionist user listing is limited to patients", async () => {
+  const calls: unknown[] = [];
+  const prisma = {
+    user: {
+      findMany: async (input: unknown) => {
+        calls.push({ method: "findMany", input });
+        return [];
+      },
+      count: async (input: unknown) => {
+        calls.push({ method: "count", input });
+        return 0;
+      },
+    },
+  };
+  const service = new UsersService(prisma as never);
+
+  await service.listUsers(
+    {
+      role: Role.ADMIN,
+      search: "medislot",
+      page: 1,
+      pageSize: 10,
+    },
+    { userId: 9, role: Role.RECEPTIONIST },
+  );
+
+  assert.deepStrictEqual(calls, [
+    {
+      method: "findMany",
+      input: {
+        where: {
+          role: Role.PATIENT,
+          OR: [
+            { name: { contains: "medislot", mode: "insensitive" } },
+            { email: { contains: "medislot", mode: "insensitive" } },
+          ],
+        },
+        orderBy: { id: "asc" },
+        skip: 0,
+        take: 10,
+      },
+    },
+    {
+      method: "count",
+      input: {
+        where: {
+          role: Role.PATIENT,
+          OR: [
+            { name: { contains: "medislot", mode: "insensitive" } },
+            { email: { contains: "medislot", mode: "insensitive" } },
+          ],
+        },
+      },
+    },
+  ]);
+});
+
 test("patients cannot read another user's profile", async () => {
   const prisma = {
     user: {
-      findUnique: async () => {
-        throw new Error("patient access should fail before querying");
-      },
+      findUnique: async () => ({
+        id: 7,
+        role: Role.PATIENT,
+      }),
     },
   };
   const service = new UsersService(prisma as never);
@@ -107,6 +165,30 @@ test("patients cannot read another user's profile", async () => {
       assert.ok(error instanceof ForbiddenException);
       assert.deepStrictEqual(error.getResponse(), {
         message: "Patients can only access their own user information",
+        code: "FORBIDDEN",
+      });
+      return true;
+    },
+  );
+});
+
+test("receptionists cannot read admin profile information", async () => {
+  const prisma = {
+    user: {
+      findUnique: async () => ({
+        id: 1,
+        role: Role.ADMIN,
+      }),
+    },
+  };
+  const service = new UsersService(prisma as never);
+
+  await assert.rejects(
+    () => service.getUserById(1, { userId: 9, role: Role.RECEPTIONIST }),
+    (error) => {
+      assert.ok(error instanceof ForbiddenException);
+      assert.deepStrictEqual(error.getResponse(), {
+        message: "You can only access allowed user information",
         code: "FORBIDDEN",
       });
       return true;

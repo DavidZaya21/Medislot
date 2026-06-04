@@ -1,6 +1,8 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { Role } from "@prisma/client";
 import type { AppointmentStatus } from "@prisma/client";
 
+import type { AuthUser } from "../auth/auth.types";
 import { toConflict, toNotFound } from "../common/prisma-errors";
 import { serializeAppointment } from "../common/serializers";
 import { PrismaService } from "../prisma/prisma.service";
@@ -28,8 +30,10 @@ export class AppointmentsService {
     doctorId: number;
     calendarId: number;
     reason: string;
-  }) {
-    await this.ensureUserExists(input.patientId, "Patient");
+  }, currentUser: AuthUser) {
+    const patientId = currentUser.role === Role.PATIENT ? currentUser.userId : input.patientId;
+
+    await this.ensurePatientExists(patientId);
     await this.ensureDoctorExists(input.doctorId);
 
     const calendar = await this.prisma.calendar.findUnique({
@@ -45,10 +49,18 @@ export class AppointmentsService {
       throw toConflict("Selected calendar slot is no longer available");
     }
 
+    if (calendar.startTime <= new Date()) {
+      throw toConflict("Cannot book an appointment in the past");
+    }
+
     const appointment = await this.prisma.$transaction(async (tx) => {
       const refreshedSlot = await tx.calendar.findUnique({ where: { id: input.calendarId } });
       if (!refreshedSlot || refreshedSlot.isBooked) {
         throw toConflict("Selected calendar slot is no longer available");
+      }
+
+      if (refreshedSlot.startTime <= new Date()) {
+        throw toConflict("Cannot book an appointment in the past");
       }
 
       await tx.calendar.update({
@@ -58,7 +70,7 @@ export class AppointmentsService {
 
       return tx.appointment.create({
         data: {
-          patientId: input.patientId,
+          patientId,
           doctorId: input.doctorId,
           calendarId: input.calendarId,
           reason: input.reason,
@@ -88,6 +100,14 @@ export class AppointmentsService {
       include: { calendar: true },
     });
     if (!current) throw toNotFound("Appointment");
+
+    if (current.status !== "CONFIRMED") {
+      throw toConflict("Only confirmed appointments can be updated");
+    }
+
+    if (input.status === "COMPLETED" && current.calendar.endTime > new Date()) {
+      throw toConflict("Cannot complete a future appointment");
+    }
 
     const shouldFreeSlot = input.status === "CANCELLED";
 
@@ -147,12 +167,12 @@ export class AppointmentsService {
     return appointment;
   }
 
-  private async ensureUserExists(userId: number, resource: string) {
+  private async ensurePatientExists(userId: number) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true },
+      select: { id: true, role: true },
     });
-    if (!user) throw toNotFound(resource);
+    if (!user || user.role !== Role.PATIENT) throw toNotFound("Patient");
   }
 
   private async ensureDoctorExists(doctorId: number) {

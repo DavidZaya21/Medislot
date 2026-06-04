@@ -34,6 +34,7 @@ export class CalendarsService {
     const startTime = new Date(input.startTime);
     const endTime = new Date(input.endTime);
     this.ensureTimeOrder(startTime, endTime);
+    this.ensureFutureStart(startTime);
 
     const conflict = await this.prisma.calendar.findFirst({
       where: {
@@ -85,6 +86,7 @@ export class CalendarsService {
     const startTime = new Date(input.startTime);
     const endTime = new Date(input.endTime);
     this.ensureTimeOrder(startTime, endTime);
+    this.ensureFutureStart(startTime);
 
     const updated = await this.prisma.calendar.update({
       where: { id: calendarId },
@@ -124,6 +126,12 @@ export class CalendarsService {
   private ensureTimeOrder(startTime: Date, endTime: Date) {
     if (Number.isNaN(startTime.valueOf()) || Number.isNaN(endTime.valueOf()) || endTime <= startTime) {
       throw toBadRequest("endTime must be later than startTime");
+    }
+  }
+
+  private ensureFutureStart(startTime: Date) {
+    if (startTime <= new Date()) {
+      throw toConflict("Calendar slot must start in the future");
     }
   }
 }

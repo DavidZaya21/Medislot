@@ -1,6 +1,12 @@
-import { IsString, MaxLength, MinLength, IsEmail, IsOptional, IsInt, Min } from "class-validator";
+import { IsString, MaxLength, MinLength, IsEmail, IsOptional } from "class-validator";
 
 export class DoctorListQueryDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  search?: string;
+
   @IsOptional()
   @IsString()
   @MinLength(2)

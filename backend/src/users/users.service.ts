@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import bcrypt from "bcrypt";
-import { Prisma } from "@prisma/client";
-import type { AppointmentStatus, Role, User } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
+import type { AppointmentStatus, User } from "@prisma/client";
 
 import type { AuthUser } from "../auth/auth.types";
 import { mapPrismaError, toForbidden, toNotFound } from "../common/prisma-errors";
@@ -36,11 +36,12 @@ export class UsersService {
     search?: string;
     page?: number;
     pageSize?: number;
-  } = {}) {
+  } = {}, currentUser: AuthUser) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 10;
+    const roleFilter = currentUser.role === "ADMIN" ? query.role : Role.PATIENT;
     const where: Prisma.UserWhereInput = {
-      ...(query.role ? { role: query.role } : {}),
+      ...(roleFilter ? { role: roleFilter } : {}),
       ...(query.search
         ? {
             OR: [
@@ -73,10 +74,9 @@ export class UsersService {
   }
 
   async getUserById(userId: number, currentUser: AuthUser) {
-    this.ensureUserScopeAccess(userId, currentUser);
-
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw toNotFound("User");
+    this.ensureUserReadAccess(user, currentUser);
     return serializeUser(user);
   }
 
@@ -85,7 +85,7 @@ export class UsersService {
     input: { name: string; email: string },
     currentUser: AuthUser,
   ) {
-    this.ensureUserScopeAccess(userId, currentUser);
+    await this.ensureUserUpdateAccess(userId, currentUser);
 
     try {
       const user = await this.prisma.user.update({
@@ -125,8 +125,7 @@ export class UsersService {
     status: AppointmentStatus | undefined,
     currentUser: AuthUser,
   ) {
-    this.ensureUserScopeAccess(userId, currentUser);
-    await this.ensureUserExists(userId);
+    await this.ensureUserAppointmentAccess(userId, currentUser);
     const appointments = await this.prisma.appointment.findMany({
       where: {
         patientId: userId,
@@ -143,15 +142,36 @@ export class UsersService {
     return { data: appointments.map(serializeAppointment) };
   }
 
-  private async ensureUserExists(userId: number) {
-    const exists = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
-    if (!exists) throw toNotFound("User");
-  }
+  private ensureUserReadAccess(user: User, currentUser: AuthUser) {
+    if (currentUser.role === "ADMIN") return;
+    if (currentUser.userId === user.id) return;
+    if (currentUser.role === "RECEPTIONIST" && user.role === "PATIENT") return;
 
-  private ensureUserScopeAccess(userId: number, currentUser: AuthUser) {
-    if (currentUser.role === "PATIENT" && currentUser.userId !== userId) {
+    if (currentUser.role === "PATIENT") {
       throw toForbidden("Patients can only access their own user information");
     }
+    throw toForbidden("You can only access allowed user information");
+  }
+
+  private async ensureUserUpdateAccess(userId: number, currentUser: AuthUser) {
+    if (currentUser.role === "ADMIN") return;
+    if (currentUser.userId !== userId) {
+      throw toForbidden("You can only update your own user information");
+    }
+  }
+
+  private async ensureUserAppointmentAccess(userId: number, currentUser: AuthUser) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+    if (!user) throw toNotFound("User");
+
+    if (currentUser.role === "ADMIN") return;
+    if (currentUser.role === "PATIENT" && currentUser.userId === userId) return;
+    if (currentUser.role === "RECEPTIONIST" && user.role === "PATIENT") return;
+
+    throw toForbidden("You can only access allowed user appointment information");
   }
 }
 

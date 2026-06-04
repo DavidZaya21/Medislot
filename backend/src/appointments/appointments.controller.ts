@@ -16,6 +16,8 @@ import { Role } from "@prisma/client";
 import { AuthGuard } from "../auth/auth.guard";
 import { RolesGuard } from "../auth/roles.guard";
 import { Roles } from "../auth/roles.decorator";
+import { CurrentUser } from "../auth/current-user.decorator";
+import type { AuthUser } from "../auth/auth.types";
 import {
   AppointmentListQueryDto,
   CreateAppointmentDto,
@@ -39,8 +41,11 @@ export class AppointmentsController {
 
   @Post()
   @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.PATIENT)
-  requestAppointment(@Body() body: CreateAppointmentDto) {
-    return this.appointmentsService.requestAppointment(body);
+  requestAppointment(
+    @Body() body: CreateAppointmentDto,
+    @CurrentUser() currentUser: AuthUser,
+  ) {
+    return this.appointmentsService.requestAppointment(body, currentUser);
   }
 
   @Get(":appointmentId")

@@ -19,7 +19,8 @@ export default function RegisterPage() {
     setError("");
     setLoading(true);
 
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     try {
       await apiRequest("/users", {
         method: "POST",
@@ -30,7 +31,7 @@ export default function RegisterPage() {
         },
       });
       setMessage("Patient account created. You can login now.");
-      event.currentTarget.reset();
+      formElement.reset();
       setTimeout(() => router.push("/login"), 900);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Registration failed");

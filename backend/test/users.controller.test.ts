@@ -28,7 +28,7 @@ test("POST /users registers a patient", async () => {
 
 test("GET /users lists users", async () => {
   const response = { data: [{ id: 1, role: Role.PATIENT }] };
-  const listUsers = createSpy(async (query: unknown) => response);
+  const listUsers = createSpy(async (query: unknown, currentUser: unknown) => response);
   const service = { listUsers: listUsers.fn } as unknown as UsersService;
   const controller = new UsersController(service);
   const query = {
@@ -38,10 +38,10 @@ test("GET /users lists users", async () => {
     pageSize: 5,
   };
 
-  const result = await controller.listUsers(query);
+  const result = await controller.listUsers(query, adminUser);
 
   assert.deepStrictEqual(result, response);
-  assert.deepStrictEqual(listUsers.calls, [[query]]);
+  assert.deepStrictEqual(listUsers.calls, [[query, adminUser]]);
 });
 
 test("GET /users/:userId returns a user", async () => {

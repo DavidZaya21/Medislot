@@ -37,6 +37,7 @@ function CalendarsContent() {
   const [loading, setLoading] = useState(false);
 
   const canManage = role === "ADMIN" || role === "DOCTOR";
+  const minimumSlotDateTime = toDateTimeLocalValue(new Date());
 
   useEffect(() => {
     if (!auth) return;
@@ -57,7 +58,13 @@ function CalendarsContent() {
       })}`,
       { token: auth.token },
     )
-      .then((response) => setSlots(response.data))
+      .then((response) => {
+        const visibleSlots =
+          isBooked === "false"
+            ? response.data.filter((slot) => !isExpiredSlot(slot))
+            : response.data;
+        setSlots(visibleSlots);
+      })
       .catch((caught) => setError(caught instanceof Error ? caught.message : "Could not load slots"))
       .finally(() => setLoading(false));
   }
@@ -69,7 +76,8 @@ function CalendarsContent() {
   async function createSlot(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!auth) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     setMessage("");
     setError("");
     try {
@@ -83,7 +91,7 @@ function CalendarsContent() {
         },
       });
       setMessage("Calendar slot created.");
-      event.currentTarget.reset();
+      formElement.reset();
       loadSlots();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not create slot");
@@ -128,7 +136,7 @@ function CalendarsContent() {
     <>
       <PageHeader eyebrow="Calendars" title="Doctor availability" />
 
-      <section className="toolbar">
+      <section className="filter-card filter-card-fields with-action">
         <label>
           Doctor
           <select onChange={(event) => setDoctorId(event.target.value)} value={doctorId}>
@@ -174,11 +182,11 @@ function CalendarsContent() {
             </label>
             <label>
               Start
-              <input name="startTime" required type="datetime-local" />
+              <input min={minimumSlotDateTime} name="startTime" required type="datetime-local" />
             </label>
             <label>
               End
-              <input name="endTime" required type="datetime-local" />
+              <input min={minimumSlotDateTime} name="endTime" required type="datetime-local" />
             </label>
           </div>
           <button className="button button-primary" type="submit">Create slot</button>
@@ -202,25 +210,34 @@ function CalendarsContent() {
               </tr>
             </thead>
             <tbody>
-              {slots.map((slot) => (
-                <tr key={slot.id}>
-                  <td>{slot.id}</td>
-                  <td>{slot.doctor?.user.name ?? slot.doctorId}</td>
-                  <td>{formatDateTime(slot.startTime)}</td>
-                  <td>{formatDateTime(slot.endTime)}</td>
-                  <td><span className={slot.isBooked ? "status muted" : "status good"}>{slot.isBooked ? "Booked" : "Available"}</span></td>
-                  {canManage ? (
-                    <td className="row-actions">
-                      <button className="button button-secondary" onClick={() => setSlotBooked(slot, !slot.isBooked)} type="button">
-                        {slot.isBooked ? "Mark free" : "Mark booked"}
-                      </button>
-                      <button className="button button-danger" onClick={() => deleteSlot(slot.id)} type="button">
-                        Delete
-                      </button>
+              {slots.map((slot) => {
+                const expired = isExpiredSlot(slot);
+                return (
+                  <tr key={slot.id}>
+                    <td>{slot.id}</td>
+                    <td>{slot.doctor?.user.name ?? slot.doctorId}</td>
+                    <td>{formatDateTime(slot.startTime)}</td>
+                    <td>{formatDateTime(slot.endTime)}</td>
+                    <td>
+                      <span className={getSlotStatusClass(slot, expired)}>
+                        {getSlotStatusLabel(slot, expired)}
+                      </span>
                     </td>
-                  ) : null}
-                </tr>
-              ))}
+                    {canManage ? (
+                      <td className="row-actions">
+                        {!expired ? (
+                          <button className="button button-secondary" onClick={() => setSlotBooked(slot, !slot.isBooked)} type="button">
+                            {slot.isBooked ? "Mark free" : "Mark booked"}
+                          </button>
+                        ) : null}
+                        <button className="button button-danger" onClick={() => deleteSlot(slot.id)} type="button">
+                          Delete
+                        </button>
+                      </td>
+                    ) : null}
+                  </tr>
+                );
+              })}
               {!loading && slots.length === 0 ? (
                 <tr>
                   <td colSpan={canManage ? 6 : 5}>No calendar slots match the filters.</td>
@@ -241,3 +258,22 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+function isExpiredSlot(slot: CalendarSlot) {
+  return !slot.isBooked && new Date(slot.startTime).getTime() <= Date.now();
+}
+
+function getSlotStatusLabel(slot: CalendarSlot, expired: boolean) {
+  if (slot.isBooked) return "Booked";
+  return expired ? "Expired" : "Available";
+}
+
+function getSlotStatusClass(slot: CalendarSlot, expired: boolean) {
+  if (slot.isBooked) return "status muted";
+  return expired ? "status warning" : "status good";
+}
+
+function toDateTimeLocalValue(date: Date) {
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - offset * 60_000);
+  return localDate.toISOString().slice(0, 16);
+}

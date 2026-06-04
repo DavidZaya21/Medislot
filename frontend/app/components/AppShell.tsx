@@ -15,8 +15,8 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { href: "/", label: "Home", roles: ["ADMIN", "RECEPTIONIST", "DOCTOR"] },
-  { href: "/users", label: "Users", roles: ["ADMIN", "RECEPTIONIST", "DOCTOR"] },
-  { href: "/doctors", label: "Doctors", roles: ["ADMIN", "RECEPTIONIST", "DOCTOR", "PATIENT"] },
+  { href: "/users", label: "Users", roles: ["ADMIN"] },
+  { href: "/doctors", label: "Doctors", roles: ["ADMIN", "DOCTOR", "PATIENT"] },
   { href: "/receptionists", label: "Receptionists", roles: ["ADMIN"] },
   { href: "/calendars", label: "Schedule", roles: ["ADMIN", "DOCTOR", "PATIENT"] },
   { href: "/appointments", label: "Appointments", roles: ["ADMIN", "RECEPTIONIST", "DOCTOR", "PATIENT"] },

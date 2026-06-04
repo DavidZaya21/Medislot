@@ -21,7 +21,7 @@ type UsersResponse = {
 export default function UsersPage() {
   return (
     <AppShell>
-      <RequireAuth roles={["ADMIN", "RECEPTIONIST", "DOCTOR"]}>
+      <RequireAuth roles={["ADMIN"]}>
         <UsersTable />
       </RequireAuth>
     </AppShell>
@@ -116,9 +116,7 @@ function UsersTable() {
 
   return (
     <>
-      <PageHeader eyebrow="Users" title="People directory">
-        <span className="meta-pill">{meta.total} total</span>
-      </PageHeader>
+      <PageHeader eyebrow="Users" title="People directory" />
 
       {editing ? (
         <form className="form-card compact" onSubmit={updateUser}>
@@ -144,7 +142,7 @@ function UsersTable() {
         </form>
       ) : null}
 
-      <section className="toolbar">
+      <section className="filter-card filter-card-fields">
         <label>
           Search
           <input

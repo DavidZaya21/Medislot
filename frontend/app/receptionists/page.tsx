@@ -68,7 +68,8 @@ function ReceptionistsContent() {
   async function createReceptionist(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!auth) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     setMessage("");
     setError("");
     try {
@@ -82,7 +83,7 @@ function ReceptionistsContent() {
         },
       });
       setMessage("Receptionist created.");
-      event.currentTarget.reset();
+      formElement.reset();
       setShowCreateForm(false);
       setPage(1);
       loadReceptionists(1, search);
@@ -184,14 +185,13 @@ function ReceptionistsContent() {
       ) : null}
 
       <form
-        className="filter-card"
+        className="filter-card filter-card-search"
         onSubmit={(event) => {
           event.preventDefault();
           setPage(1);
           loadReceptionists(1, search);
         }}
       >
-        <span className="filter-summary">{meta.total} total</span>
         <label>
           Search
           <input
@@ -205,7 +205,7 @@ function ReceptionistsContent() {
         </label>
         <button className="button button-primary" disabled={loading} type="submit">Filter</button>
         <button
-          className="button button-secondary"
+          className="button button-secondary button-small"
           disabled={loading}
           onClick={() => {
             setSearch("");

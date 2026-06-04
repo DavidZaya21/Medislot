@@ -37,9 +37,12 @@ export class UsersController {
 
   @Get()
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR)
-  listUsers(@Query() query: UserListQueryDto) {
-    return this.usersService.listUsers(query);
+  @Roles(Role.ADMIN, Role.RECEPTIONIST)
+  listUsers(
+    @Query() query: UserListQueryDto,
+    @CurrentUser() currentUser: AuthUser,
+  ) {
+    return this.usersService.listUsers(query, currentUser);
   }
 
   @Get(":userId")

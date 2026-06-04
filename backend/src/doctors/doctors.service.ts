@@ -10,12 +10,20 @@ import { PrismaService } from "../prisma/prisma.service";
 export class DoctorsService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async listDoctors(specialization?: string) {
+  async listDoctors(query: { search?: string; specialization?: string } = {}) {
     const doctors = await this.prisma.user.findMany({
       where: {
         role: "DOCTOR",
-        ...(specialization
-          ? { specialization: { contains: specialization, mode: "insensitive" } }
+        ...(query.search
+          ? {
+              OR: [
+                { name: { contains: query.search, mode: "insensitive" } },
+                { email: { contains: query.search, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+        ...(query.specialization
+          ? { specialization: { contains: query.specialization, mode: "insensitive" } }
           : {}),
       },
       orderBy: { id: "asc" },

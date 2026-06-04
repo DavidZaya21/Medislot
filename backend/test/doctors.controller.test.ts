@@ -8,14 +8,15 @@ import { createSpy } from "./helpers";
 
 test("GET /doctors lists doctors", async () => {
   const response = { data: [{ id: 5, specialization: "Cardiology" }] };
-  const listDoctors = createSpy(async (specialization?: string) => response);
+  const listDoctors = createSpy(async (query?: unknown) => response);
   const service = { listDoctors: listDoctors.fn } as unknown as DoctorsService;
   const controller = new DoctorsController(service);
 
-  const result = await controller.listDoctors({ specialization: "Cardiology" });
+  const query = { search: "anna", specialization: "Cardiology" };
+  const result = await controller.listDoctors(query);
 
   assert.deepStrictEqual(result, response);
-  assert.deepStrictEqual(listDoctors.calls, [["Cardiology"]]);
+  assert.deepStrictEqual(listDoctors.calls, [[query]]);
 });
 
 test("POST /doctors creates a doctor", async () => {

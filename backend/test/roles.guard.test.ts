@@ -22,10 +22,10 @@ test("GET /users rejects patient access", () => {
   );
 });
 
-test("GET /users allows staff access", () => {
+test("GET /users allows admin and receptionist access", () => {
   const guard = new RolesGuard(new Reflector());
 
-  for (const role of [Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR]) {
+  for (const role of [Role.ADMIN, Role.RECEPTIONIST]) {
     const context = createHttpContext({
       handler: UsersController.prototype.listUsers,
       controller: UsersController,
@@ -34,6 +34,20 @@ test("GET /users allows staff access", () => {
 
     assert.equal(guard.canActivate(context), true);
   }
+});
+
+test("GET /users rejects doctor access", () => {
+  const guard = new RolesGuard(new Reflector());
+  const context = createHttpContext({
+    handler: UsersController.prototype.listUsers,
+    controller: UsersController,
+    role: Role.DOCTOR,
+  });
+
+  assert.throws(
+    () => guard.canActivate(context),
+    (error) => error instanceof ForbiddenException,
+  );
 });
 
 function createHttpContext(input: {

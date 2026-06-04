@@ -27,7 +27,7 @@ export class DoctorsController {
 
   @Get()
   listDoctors(@Query() query: DoctorListQueryDto) {
-    return this.doctorsService.listDoctors(query.specialization);
+    return this.doctorsService.listDoctors(query);
   }
 
   @Post()

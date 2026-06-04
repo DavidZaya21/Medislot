@@ -23,6 +23,7 @@ export default function DoctorsPage() {
 
 function DoctorsContent() {
   const { auth, role } = useAuth();
+  const [search, setSearch] = useState("");
   const [specialization, setSpecialization] = useState("");
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -33,13 +34,18 @@ function DoctorsContent() {
   const [loading, setLoading] = useState(false);
   const canManage = role === "ADMIN";
 
-  function loadDoctors(filter = specialization) {
+  function loadDoctors(nextSearch = search, nextSpecialization = specialization) {
     if (!auth) return;
     setLoading(true);
     setError("");
     setMessage("");
+    const normalizedSearch = nextSearch.trim();
+    const normalizedSpecialization = nextSpecialization.trim();
     apiRequest<DoctorsResponse>(
-      `/doctors${buildQuery({ specialization: filter.trim() || undefined })}`,
+      `/doctors${buildQuery({
+        search: normalizedSearch.length >= 2 ? normalizedSearch : undefined,
+        specialization: normalizedSpecialization.length >= 2 ? normalizedSpecialization : undefined,
+      })}`,
       { token: auth.token },
     )
       .then((response) => setDoctors(response.data))
@@ -48,7 +54,7 @@ function DoctorsContent() {
   }
 
   useEffect(() => {
-    loadDoctors("");
+    loadDoctors("", "");
   }, [auth]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -59,7 +65,8 @@ function DoctorsContent() {
   async function createDoctor(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!auth) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     setMessage("");
     setError("");
 
@@ -75,9 +82,9 @@ function DoctorsContent() {
         },
       });
       setMessage("Doctor created.");
-      event.currentTarget.reset();
+      formElement.reset();
       setShowCreateForm(false);
-      loadDoctors("");
+      loadDoctors(search, specialization);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not create doctor");
     }
@@ -96,7 +103,7 @@ function DoctorsContent() {
       setEditingId(null);
       setEditingSpecialization("");
       setMessage("Doctor updated.");
-      loadDoctors();
+      loadDoctors(search, specialization);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not update doctor");
     }
@@ -113,7 +120,7 @@ function DoctorsContent() {
         token: auth.token,
       });
       setMessage("Doctor deleted.");
-      loadDoctors();
+      loadDoctors(search, specialization);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not delete doctor");
     }
@@ -159,7 +166,18 @@ function DoctorsContent() {
         </form>
       ) : null}
 
-      <form className="filter-card" onSubmit={handleSubmit}>
+      <form className="filter-card filter-card-fields with-action" onSubmit={handleSubmit}>
+        <label>
+          Search
+          <input
+            maxLength={100}
+            minLength={2}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Name or email"
+            type="search"
+            value={search}
+          />
+        </label>
         <label>
           Specialization
           <input
@@ -175,11 +193,12 @@ function DoctorsContent() {
           Filter
         </button>
         <button
-          className="button button-secondary"
+          className="button button-secondary button-small"
           disabled={loading}
           onClick={() => {
+            setSearch("");
             setSpecialization("");
-            loadDoctors("");
+            loadDoctors("", "");
           }}
           type="button"
         >

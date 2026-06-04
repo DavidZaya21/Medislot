@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { AppShell, Notice, PageHeader, RequireAuth } from "../components/AppShell";
 import { apiRequest, buildQuery } from "../lib/api";
-import type { Appointment, AppointmentStatus, CalendarSlot, Doctor } from "../lib/types";
+import type { Appointment, AppointmentStatus, CalendarSlot, Doctor, PaginationMeta, User } from "../lib/types";
 import { useAuth } from "../lib/useAuth";
 
 type AppointmentsResponse = {
@@ -17,6 +17,11 @@ type DoctorsResponse = {
 
 type CalendarResponse = {
   data: CalendarSlot[];
+};
+
+type UsersResponse = {
+  data: User[];
+  meta: PaginationMeta;
 };
 
 const statuses: Array<AppointmentStatus | ""> = ["", "CONFIRMED", "CANCELLED", "COMPLETED", "NO_SHOW"];
@@ -36,6 +41,9 @@ function AppointmentsContent() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [slots, setSlots] = useState<CalendarSlot[]>([]);
+  const [patients, setPatients] = useState<User[]>([]);
+  const [patientSearch, setPatientSearch] = useState("");
+  const [selectedPatientId, setSelectedPatientId] = useState("");
   const [status, setStatus] = useState<AppointmentStatus | "">("");
   const [selectedDoctorId, setSelectedDoctorId] = useState("");
   const [message, setMessage] = useState("");
@@ -44,6 +52,7 @@ function AppointmentsContent() {
 
   const canReview = role === "ADMIN" || role === "RECEPTIONIST" || role === "DOCTOR";
   const canDelete = role === "ADMIN" || role === "RECEPTIONIST";
+  const canCreateAppointment = role === "ADMIN" || role === "RECEPTIONIST" || role === "PATIENT";
 
   function loadAppointments(nextStatus = status) {
     if (!auth) return;
@@ -71,8 +80,25 @@ function AppointmentsContent() {
       `/calendars${buildQuery({ doctorId: Number(doctorId), isBooked: false })}`,
       { token: auth.token },
     )
-      .then((response) => setSlots(response.data))
+      .then((response) => {
+        const now = Date.now();
+        setSlots(response.data.filter((slot) => new Date(slot.startTime).getTime() > now));
+      })
       .catch(() => setSlots([]));
+  }
+
+  function searchPatients(search: string) {
+    if (!auth || search.trim().length < 2) {
+      setPatients([]);
+      return;
+    }
+
+    apiRequest<UsersResponse>(
+      `/users${buildQuery({ role: "PATIENT", search: search.trim(), page: 1, pageSize: 10 })}`,
+      { token: auth.token },
+    )
+      .then((response) => setPatients(response.data))
+      .catch(() => setPatients([]));
   }
 
   useEffect(() => {
@@ -86,7 +112,8 @@ function AppointmentsContent() {
   async function createAppointment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!auth) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     setMessage("");
     setError("");
 
@@ -102,8 +129,11 @@ function AppointmentsContent() {
         },
       });
       setMessage("Appointment created.");
-      event.currentTarget.reset();
+      formElement.reset();
       setSlots([]);
+      setPatients([]);
+      setPatientSearch("");
+      setSelectedPatientId("");
       setSelectedDoctorId("");
       loadAppointments();
     } catch (caught) {
@@ -145,7 +175,7 @@ function AppointmentsContent() {
     <>
       <PageHeader eyebrow="Appointments" title={role === "PATIENT" ? "My appointments" : "Appointment management"} />
 
-      <section className="toolbar">
+      <section className="filter-card filter-card-single">
         <label>
           Status
           <select
@@ -165,52 +195,83 @@ function AppointmentsContent() {
         </label>
       </section>
 
-      <form className="form-card compact" onSubmit={createAppointment}>
-        <h2>{role === "PATIENT" ? "Book appointment" : "Create appointment"}</h2>
-        <div className="form-grid">
-          {role !== "PATIENT" ? (
+      {canCreateAppointment ? (
+        <form className="form-card compact" onSubmit={createAppointment}>
+          <h2>{role === "PATIENT" ? "Book appointment" : "Create appointment"}</h2>
+          <div className="form-grid">
+            {role !== "PATIENT" ? (
+              <>
+                <label>
+                  Patient search
+                  <input
+                    maxLength={100}
+                    minLength={2}
+                    onChange={(event) => {
+                      setPatientSearch(event.target.value);
+                      setSelectedPatientId("");
+                      searchPatients(event.target.value);
+                    }}
+                    placeholder="Patient name or email"
+                    type="search"
+                    value={patientSearch}
+                  />
+                </label>
+                <label>
+                  Patient
+                  <select
+                    name="patientId"
+                    onChange={(event) => setSelectedPatientId(event.target.value)}
+                    required
+                    value={selectedPatientId}
+                  >
+                    <option value="">Select patient</option>
+                    {patients.map((patient) => (
+                      <option key={patient.id} value={patient.id}>
+                        {patient.name} - {patient.email}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            ) : null}
             <label>
-              Patient ID
-              <input min={1} name="patientId" required type="number" />
+              Doctor
+              <select
+                name="doctorId"
+                onChange={(event) => {
+                  setSelectedDoctorId(event.target.value);
+                  loadAvailableSlots(event.target.value);
+                }}
+                required
+                value={selectedDoctorId}
+              >
+                <option value="">Select doctor</option>
+                {doctors.map((doctor) => (
+                  <option key={doctor.id} value={doctor.userId}>
+                    {doctor.user.name} - {doctor.specialization}
+                  </option>
+                ))}
+              </select>
             </label>
-          ) : null}
-          <label>
-            Doctor
-            <select
-              name="doctorId"
-              onChange={(event) => {
-                setSelectedDoctorId(event.target.value);
-                loadAvailableSlots(event.target.value);
-              }}
-              required
-              value={selectedDoctorId}
-            >
-              <option value="">Select doctor</option>
-              {doctors.map((doctor) => (
-                <option key={doctor.id} value={doctor.userId}>
-                  {doctor.user.name} - {doctor.specialization}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Slot
-            <select name="calendarId" required>
-              <option value="">Select available slot</option>
-              {slots.map((slot) => (
-                <option key={slot.id} value={slot.id}>
-                  {formatDateTime(slot.startTime)} - {formatTime(slot.endTime)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="wide">
-            Reason
-            <input maxLength={500} minLength={5} name="reason" placeholder="Brief visit reason" required type="text" />
-          </label>
-        </div>
-        <button className="button button-primary" type="submit">Create appointment</button>
-      </form>
+            <label>
+              Slot
+              <select name="calendarId" required>
+                <option value="">Select available slot</option>
+                {slots.map((slot) => (
+                  <option key={slot.id} value={slot.id}>
+                    {formatDateTime(slot.startTime)} - {formatTime(slot.endTime)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="wide">
+              Reason
+              <input maxLength={500} minLength={5} name="reason" placeholder="Brief visit reason" required type="text" />
+            </label>
+          </div>
+          <button className="button button-primary" type="submit">Create appointment</button>
+        </form>
+      ) : null}
 
       {error ? <Notice message={error} tone="error" /> : null}
       {message ? <Notice message={message} /> : null}
@@ -230,35 +291,40 @@ function AppointmentsContent() {
               </tr>
             </thead>
             <tbody>
-              {appointments.map((appointment) => (
-                <tr key={appointment.id}>
-                  <td>{appointment.id}</td>
-                  <td>{appointment.patient?.name ?? appointment.patientId}</td>
-                  <td>{appointment.doctor?.user.name ?? appointment.doctorId}</td>
-                  <td>{appointment.slotStartTime ? formatDateTime(appointment.slotStartTime) : appointment.calendarId}</td>
-                  <td><span className="status">{appointment.status}</span></td>
-                  <td>{appointment.reason}</td>
-                  {canReview || canDelete ? (
-                    <td className="row-actions">
-                      {canReview ? (
-                        <>
+              {appointments.map((appointment) => {
+                const canChangeStatus = canReview && appointment.status === "CONFIRMED";
+                const canCompleteAppointment = canChangeStatus && hasAppointmentEnded(appointment);
+
+                return (
+                  <tr key={appointment.id}>
+                    <td>{appointment.id}</td>
+                    <td>{appointment.patient?.name ?? appointment.patientId}</td>
+                    <td>{appointment.doctor?.user.name ?? appointment.doctorId}</td>
+                    <td>{appointment.slotStartTime ? formatDateTime(appointment.slotStartTime) : appointment.calendarId}</td>
+                    <td><span className="status">{appointment.status}</span></td>
+                    <td>{appointment.reason}</td>
+                    {canReview || canDelete ? (
+                      <td className="row-actions">
+                        {canCompleteAppointment ? (
                           <button className="button button-secondary" onClick={() => updateAppointment(appointment.id, "COMPLETED", appointment.reason)} type="button">
                             Complete
                           </button>
+                        ) : null}
+                        {canChangeStatus ? (
                           <button className="button button-secondary" onClick={() => updateAppointment(appointment.id, "CANCELLED", appointment.reason)} type="button">
                             Cancel
                           </button>
-                        </>
-                      ) : null}
-                      {canDelete ? (
-                        <button className="button button-danger" onClick={() => deleteAppointment(appointment.id)} type="button">
-                          Delete
-                        </button>
-                      ) : null}
-                    </td>
-                  ) : null}
-                </tr>
-              ))}
+                        ) : null}
+                        {canDelete ? (
+                          <button className="button button-danger" onClick={() => deleteAppointment(appointment.id)} type="button">
+                            Delete
+                          </button>
+                        ) : null}
+                      </td>
+                    ) : null}
+                  </tr>
+                );
+              })}
               {!loading && appointments.length === 0 ? (
                 <tr>
                   <td colSpan={canReview || canDelete ? 7 : 6}>No appointments match the current filters.</td>
@@ -285,3 +351,7 @@ function formatTime(value: string) {
   }).format(new Date(value));
 }
 
+function hasAppointmentEnded(appointment: Appointment) {
+  if (!appointment.slotEndTime) return false;
+  return new Date(appointment.slotEndTime).getTime() <= Date.now();
+}

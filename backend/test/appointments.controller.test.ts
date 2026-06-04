@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AppointmentStatus } from "@prisma/client";
+import { AppointmentStatus, Role } from "@prisma/client";
 
 import { AppointmentsController } from "../src/appointments/appointments.controller";
 import { AppointmentsService } from "../src/appointments/appointments.service";
@@ -20,7 +20,7 @@ test("GET /appointments lists appointments", async () => {
 
 test("POST /appointments creates an appointment", async () => {
   const response = { id: 1, status: AppointmentStatus.CONFIRMED };
-  const requestAppointment = createSpy(async (input: unknown) => response);
+  const requestAppointment = createSpy(async (input: unknown, currentUser: unknown) => response);
   const service = {
     requestAppointment: requestAppointment.fn,
   } as unknown as AppointmentsService;
@@ -32,10 +32,11 @@ test("POST /appointments creates an appointment", async () => {
     reason: "Regular clinic visit",
   };
 
-  const result = await controller.requestAppointment(body);
+  const currentUser = { userId: 9, role: Role.RECEPTIONIST };
+  const result = await controller.requestAppointment(body, currentUser);
 
   assert.deepStrictEqual(result, response);
-  assert.deepStrictEqual(requestAppointment.calls, [[body]]);
+  assert.deepStrictEqual(requestAppointment.calls, [[body, currentUser]]);
 });
 
 test("GET /appointments/:appointmentId returns an appointment", async () => {

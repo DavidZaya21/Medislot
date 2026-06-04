@@ -21,9 +21,7 @@ const roleCopy = {
   RECEPTIONIST: {
     title: "Keep the appointment desk moving.",
     cards: [
-      ["Users", "Find patients, doctors, and staff quickly.", "/users"],
-      ["Appointments", "Create and update appointment status.", "/appointments"],
-      ["Doctors", "Browse doctors and specializations.", "/doctors"],
+      ["Appointments", "Search patients, choose doctors, and manage visits.", "/appointments"],
     ],
   },
   DOCTOR: {

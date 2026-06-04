@@ -305,13 +305,45 @@ label {
 
 input,
 select {
+  display: block;
   width: 100%;
+  height: 46px;
   min-height: 46px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: white;
   color: var(--text);
   padding: 0 12px;
+}
+
+input[type="date"],
+input[type="datetime-local"] {
+  color: var(--text);
+  line-height: normal;
+  padding-block: 11px;
+}
+
+input[type="date"]::-webkit-datetime-edit,
+input[type="datetime-local"]::-webkit-datetime-edit {
+  color: var(--text);
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  opacity: 0.7;
+}
+
+select {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #667085 50%),
+    linear-gradient(135deg, #667085 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) 20px,
+    calc(100% - 13px) 20px;
+  background-repeat: no-repeat;
+  background-size: 5px 5px, 5px 5px;
+  padding-right: 34px;
 }
 
 input:focus,
@@ -342,26 +374,31 @@ input:disabled {
 }
 
 .filter-card {
-  grid-template-columns: minmax(220px, 1fr) auto auto;
   padding: 12px;
 }
 
-.filter-card label {
-  max-width: 520px;
+.filter-card-search {
+  grid-template-columns: minmax(240px, 1fr) auto auto;
+}
+
+.filter-card-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.filter-card-fields label {
+  min-width: 0;
+}
+
+.filter-card-fields.with-action {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+}
+
+.filter-card-single {
+  grid-template-columns: minmax(220px, 340px);
 }
 
 .filter-card .button {
-  min-width: 120px;
-}
-
-.filter-summary {
-  align-self: center;
-  border-radius: 8px;
-  background: var(--surface-muted);
-  color: #344054;
-  padding: 12px 14px;
-  font-size: 0.85rem;
-  font-weight: 800;
+  min-width: 108px;
 }
 
 .button {
@@ -394,6 +431,11 @@ input:disabled {
   border-color: var(--line);
   background: white;
   color: var(--text);
+}
+
+.button-small {
+  min-width: 76px;
+  padding-inline: 12px;
 }
 
 .button-danger {
@@ -451,12 +493,24 @@ th {
   text-transform: uppercase;
 }
 
-.pagination-row,
-.row-actions {
+td:has(.row-actions),
+td.row-actions {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.pagination-row {
   display: flex;
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.row-actions {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: nowrap;
 }
 
 .pagination-row {
@@ -493,6 +547,11 @@ th {
   color: var(--muted);
 }
 
+.status.warning {
+  background: #fff4df;
+  color: #9a5b00;
+}
+
 @media (max-width: 980px) {
   .topbar {
     position: static;
@@ -513,10 +572,6 @@ th {
   .toolbar,
   .filter-card {
     grid-template-columns: 1fr;
-  }
-
-  .filter-card label {
-    max-width: none;
   }
 
   .content-shell {
