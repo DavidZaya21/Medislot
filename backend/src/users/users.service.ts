@@ -37,8 +37,8 @@ export class UsersService {
     page?: number;
     pageSize?: number;
   } = {}, currentUser: AuthUser) {
-    const page = query.page ?? 1;
-    const pageSize = query.pageSize ?? 10;
+    const page = Number(query.page ?? 1);
+    const pageSize = Number(query.pageSize ?? 10);
     const roleFilter = currentUser.role === "ADMIN" ? query.role : Role.PATIENT;
     const where: Prisma.UserWhereInput = {
       ...(roleFilter ? { role: roleFilter } : {}),

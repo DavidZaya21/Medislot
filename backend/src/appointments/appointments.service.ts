@@ -63,10 +63,14 @@ export class AppointmentsService {
         throw toConflict("Cannot book an appointment in the past");
       }
 
-      await tx.calendar.update({
-        where: { id: input.calendarId },
+      const claimedSlot = await tx.calendar.updateMany({
+        where: { id: input.calendarId, isBooked: false },
         data: { isBooked: true },
       });
+
+      if (claimedSlot.count !== 1) {
+        throw toConflict("Selected calendar slot is no longer available");
+      }
 
       return tx.appointment.create({
         data: {
