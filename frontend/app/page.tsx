@@ -18,6 +18,10 @@ const roleCopy = {
       ["Appointments", "Review, complete, or cancel appointments.", "/appointments"],
     ],
   },
+  MANAGER: {
+    title: "Manager dashboard",
+    cards: [],
+  },
   RECEPTIONIST: {
     title: "Keep the appointment desk moving.",
     cards: [

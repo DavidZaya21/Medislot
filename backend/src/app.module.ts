@@ -6,6 +6,7 @@ import { RolesGuard } from "./auth/roles.guard";
 import { CalendarsModule } from "./calendars/calendars.module";
 import { DoctorsModule } from "./doctors/doctors.module";
 import { HealthModule } from "./health/health.module";
+import { ManagersModule } from "./managers/managers.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { ReceptionistsModule } from "./receptionists/receptionists.module";
 import { SessionsModule } from "./sessions/sessions.module";
@@ -19,6 +20,7 @@ import { UsersModule } from "./users/users.module";
     UsersModule,
     DoctorsModule,
     ReceptionistsModule,
+    ManagersModule,
     CalendarsModule,
     AppointmentsModule,
   ],

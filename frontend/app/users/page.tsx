@@ -7,7 +7,7 @@ import { apiRequest, buildQuery } from "../lib/api";
 import type { PaginationMeta, Role, User } from "../lib/types";
 import { useAuth } from "../lib/useAuth";
 
-const roles: Array<Role | ""> = ["", "PATIENT", "DOCTOR", "RECEPTIONIST", "ADMIN"];
+const roles: Array<Role | ""> = ["", "PATIENT", "DOCTOR", "RECEPTIONIST", "ADMIN", "MANAGER"];
 
 function userType(role: Role) {
   return role.charAt(0) + role.slice(1).toLowerCase();

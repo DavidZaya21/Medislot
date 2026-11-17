@@ -57,6 +57,7 @@ enum Role {
   DOCTOR
   RECEPTIONIST
   ADMIN
+  MANAGER
 }
 
 enum AppointmentStatus {

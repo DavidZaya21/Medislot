@@ -57,6 +57,7 @@ export class DoctorsController {
   }
 
   @Get(":doctorId/appointments")
+  @Roles(Role.ADMIN)
   listAppointmentsByDoctor(
     @Param("doctorId", ParseIntPipe) doctorId: number,
     @Query() query: AppointmentListQueryDto,
