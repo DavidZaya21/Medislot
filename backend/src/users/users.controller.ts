@@ -47,7 +47,7 @@ export class UsersController {
 
   @Get(":userId")
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR, Role.PATIENT)
+  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR, Role.PATIENT, Role.MANAGER)
   getUserById(
     @Param("userId", ParseIntPipe) userId: number,
     @CurrentUser() currentUser: AuthUser,

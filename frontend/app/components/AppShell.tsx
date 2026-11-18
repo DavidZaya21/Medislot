@@ -14,6 +14,7 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
+  { href: "/schedule-generation", label: "Generate schedule", roles: ["ADMIN", "MANAGER"] },
   { href: "/", label: "Home", roles: ["ADMIN", "RECEPTIONIST", "DOCTOR"] },
   { href: "/users", label: "Users", roles: ["ADMIN"] },
   { href: "/doctors", label: "Doctors", roles: ["ADMIN", "DOCTOR", "PATIENT"] },

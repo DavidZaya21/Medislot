@@ -195,3 +195,18 @@ test("receptionists cannot read admin profile information", async () => {
     },
   );
 });
+
+test("managers can read their own profile but not another user's profile", async () => {
+  const users = [
+    { id: 20, name: "Test Manager", email: "manager@example.test", role: Role.MANAGER, password: "secret" },
+    { id: 21, name: "Test Patient", email: "patient@example.test", role: Role.PATIENT, password: "secret" },
+  ];
+  const service = new UsersService({
+    user: { findUnique: async ({ where }: { where: { id: number } }) => users.find(({ id }) => id === where.id) },
+  } as never);
+  const caller = { userId: 20, role: Role.MANAGER };
+  const own = await service.getUserById(20, caller);
+  assert.equal(own.name, "Test Manager");
+  assert.equal("password" in own, false);
+  await assert.rejects(() => service.getUserById(21, caller), ForbiddenException);
+});
