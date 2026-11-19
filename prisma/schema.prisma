@@ -22,6 +22,8 @@ model User {
   patientAppointments Appointment[] @relation("PatientAppointments")
   doctorAppointments  Appointment[] @relation("DoctorAppointments")
   calendarSlots       Calendar[]
+  schedulePeriods     SchedulePeriod[] @relation("PeriodDoctor")
+  publishedPeriods    SchedulePeriod[] @relation("PeriodPublisher")
 }
 
 model Calendar {
@@ -32,6 +34,9 @@ model Calendar {
   isBooked  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  schedulePeriodId Int?
+  schedulePeriod SchedulePeriod? @relation(fields: [schedulePeriodId], references: [id])
 
   doctor       User           @relation(fields: [doctorId], references: [id])
   appointments Appointment[]
@@ -65,4 +70,24 @@ enum AppointmentStatus {
   CANCELLED
   COMPLETED
   NO_SHOW
+}
+
+model SchedulePeriod {
+  id                  Int @id @default(autoincrement())
+  doctorId            Int
+  startDate           DateTime @db.Date
+  endDate             DateTime @db.Date
+  workingWeekdays      Int[]
+  dailyStartTime      String
+  dailyEndTime        String
+  slotDurationMinutes Int
+  excludedDates       String[]
+  removedSlotIds      Int[]
+  publishedById       Int
+  createdAt           DateTime @default(now())
+  doctor              User @relation("PeriodDoctor", fields: [doctorId], references: [id])
+  publishedBy         User @relation("PeriodPublisher", fields: [publishedById], references: [id])
+  slots               Calendar[]
+
+  @@index([doctorId, startDate, endDate])
 }

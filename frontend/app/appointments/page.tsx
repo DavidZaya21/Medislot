@@ -1,10 +1,12 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { AppShell, Notice, PageHeader, RequireAuth } from "../components/AppShell";
 import { apiRequest, buildQuery } from "../lib/api";
 import type { Appointment, AppointmentStatus, CalendarSlot, Doctor, PaginationMeta, User } from "../lib/types";
+import { clinicDate, clinicDateTime, clinicTime, CLINIC_TIME_NOTICE } from "../lib/clinicTime";
+import { useClinicTimeNotice } from "../lib/useClinicTimeNotice";
 import { useAuth } from "../lib/useAuth";
 
 type AppointmentsResponse = {
@@ -38,6 +40,14 @@ export default function AppointmentsPage() {
 
 function AppointmentsContent() {
   const { auth, role } = useAuth();
+  const showClinicNotice = useClinicTimeNotice();
+  const [slotDate, setSlotDate] = useState("");
+  const [confirmation, setConfirmation] = useState<{
+    patientId: number; doctorId: number; calendarId: number; reason: string; slot: CalendarSlot;
+  } | null>(null);
+  const [booking, setBooking] = useState(false);
+  const bookingRef = useRef(false);
+  const slotRequest = useRef(0);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [slots, setSlots] = useState<CalendarSlot[]>([]);
@@ -71,6 +81,7 @@ function AppointmentsContent() {
   }
 
   function loadAvailableSlots(doctorId: string) {
+    const request = ++slotRequest.current;
     if (!auth || !doctorId) {
       setSlots([]);
       return;
@@ -81,10 +92,11 @@ function AppointmentsContent() {
       { token: auth.token },
     )
       .then((response) => {
+        if (request !== slotRequest.current) return;
         const now = Date.now();
         setSlots(response.data.filter((slot) => new Date(slot.startTime).getTime() > now));
       })
-      .catch(() => setSlots([]));
+      .catch(() => { if (request === slotRequest.current) setSlots([]); });
   }
 
   function searchPatients(search: string) {
@@ -117,19 +129,38 @@ function AppointmentsContent() {
     setMessage("");
     setError("");
 
+    const request = {
+      patientId: role === "PATIENT" ? auth.userId : Number(form.get("patientId")),
+      doctorId: Number(form.get("doctorId")),
+      calendarId: Number(form.get("calendarId")),
+      reason: String(form.get("reason")),
+    };
+    if (role === "PATIENT") {
+      const slot = slots.find(({ id }) => id === request.calendarId);
+      if (slot) setConfirmation({ ...request, slot });
+      return;
+    }
+    await bookAppointment(request, formElement);
+  }
+
+  async function bookAppointment(
+    request: { patientId: number; doctorId: number; calendarId: number; reason: string },
+    formElement?: HTMLFormElement,
+  ) {
+    if (!auth || bookingRef.current) return;
+    bookingRef.current = true;
+    setBooking(true);
+    setError("");
     try {
-      await apiRequest("/appointments", {
-        method: "POST",
-        token: auth.token,
-        body: {
-          patientId: role === "PATIENT" ? auth.userId : Number(form.get("patientId")),
-          doctorId: Number(form.get("doctorId")),
-          calendarId: Number(form.get("calendarId")),
-          reason: String(form.get("reason")),
-        },
+      const booked = await apiRequest<Appointment>("/appointments", {
+        method: "POST", token: auth.token, body: request,
       });
-      setMessage("Appointment created.");
-      formElement.reset();
+      setMessage(booked.slotStartTime
+        ? "Appointment confirmed: " + clinicDateTime(booked.slotStartTime) + (booked.slotEndTime ? " – " + clinicDateTime(booked.slotEndTime) : "")
+        : "Appointment created.");
+      formElement?.reset();
+      setConfirmation(null);
+      setSlotDate("");
       setSlots([]);
       setPatients([]);
       setPatientSearch("");
@@ -138,6 +169,9 @@ function AppointmentsContent() {
       loadAppointments();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not create appointment");
+    } finally {
+      bookingRef.current = false;
+      setBooking(false);
     }
   }
 
@@ -171,6 +205,13 @@ function AppointmentsContent() {
     }
   }
 
+  const slotGroups = new Map<string, CalendarSlot[]>();
+  [...slots].sort((a, b) => a.startTime.localeCompare(b.startTime)).forEach((slot) => {
+    const date = clinicDate(slot.startTime);
+    if (slotDate && date !== slotDate) return;
+    slotGroups.set(date, [...(slotGroups.get(date) ?? []), slot]);
+  });
+
   return (
     <>
       <PageHeader eyebrow="Appointments" title={role === "PATIENT" ? "My appointments" : "Appointment management"} />
@@ -196,8 +237,10 @@ function AppointmentsContent() {
       </section>
 
       {canCreateAppointment ? (
-        <form className="form-card compact" onSubmit={createAppointment}>
+        <form className="form-card compact" onSubmit={createAppointment} onChange={() => setConfirmation(null)}>
+          <fieldset disabled={booking}>
           <h2>{role === "PATIENT" ? "Book appointment" : "Create appointment"}</h2>
+          {role === "PATIENT" && showClinicNotice ? <Notice message={CLINIC_TIME_NOTICE} /> : null}
           <div className="form-grid">
             {role !== "PATIENT" ? (
               <>
@@ -240,6 +283,8 @@ function AppointmentsContent() {
                 name="doctorId"
                 onChange={(event) => {
                   setSelectedDoctorId(event.target.value);
+                  setSlots([]);
+                  setSlotDate("");
                   loadAvailableSlots(event.target.value);
                 }}
                 required
@@ -253,15 +298,18 @@ function AppointmentsContent() {
                 ))}
               </select>
             </label>
+            <label>Date (clinic)
+              <input type="date" value={slotDate} onChange={(event) => setSlotDate(event.target.value)} />
+            </label>
             <label>
               Slot
-              <select name="calendarId" required>
+              <select name="calendarId" key={selectedDoctorId + slotDate} required>
                 <option value="">Select available slot</option>
-                {slots.map((slot) => (
-                  <option key={slot.id} value={slot.id}>
-                    {formatDateTime(slot.startTime)} - {formatTime(slot.endTime)}
-                  </option>
-                ))}
+                {[...slotGroups].map(([date, group]) => <optgroup key={date} label={date}>
+                  {group.map((slot) => <option key={slot.id} value={slot.id}>
+                    {clinicTime(slot.startTime)} – {clinicDate(slot.endTime) === date ? clinicTime(slot.endTime) : clinicDateTime(slot.endTime)}
+                  </option>)}
+                </optgroup>)}
               </select>
             </label>
             <label className="wide">
@@ -269,10 +317,27 @@ function AppointmentsContent() {
               <input maxLength={500} minLength={5} name="reason" placeholder="Brief visit reason" required type="text" />
             </label>
           </div>
-          <button className="button button-primary" type="submit">Create appointment</button>
+          <button className="button button-primary" type="submit" disabled={booking}>
+            {role === "PATIENT" ? "Review booking" : "Create appointment"}
+          </button>
+          </fieldset>
         </form>
       ) : null}
 
+      {confirmation ? <section className="form-card" aria-label="Booking confirmation">
+        <h2>Confirm booking</h2>
+        <p>Doctor: {doctors.find(({ id }) => id === confirmation.doctorId)?.user.name}</p>
+        <p>{clinicDateTime(confirmation.slot.startTime)} – {clinicDateTime(confirmation.slot.endTime)}</p>
+        {showClinicNotice ? <Notice message={CLINIC_TIME_NOTICE} /> : null}
+        <div className="row-actions">
+          <button className="button button-primary" type="button" disabled={booking}
+            onClick={() => bookAppointment({
+              patientId: confirmation.patientId, doctorId: confirmation.doctorId,
+              calendarId: confirmation.calendarId, reason: confirmation.reason,
+            })}>{booking ? "Booking…" : "Confirm booking"}</button>
+          <button className="button button-secondary" type="button" disabled={booking} onClick={() => setConfirmation(null)}>Cancel</button>
+        </div>
+      </section> : null}
       {error ? <Notice message={error} tone="error" /> : null}
       {message ? <Notice message={message} /> : null}
 
@@ -338,18 +403,7 @@ function AppointmentsContent() {
   );
 }
 
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
-
-function formatTime(value: string) {
-  return new Intl.DateTimeFormat("en", {
-    timeStyle: "short",
-  }).format(new Date(value));
-}
+const formatDateTime = clinicDateTime;
 
 function hasAppointmentEnded(appointment: Appointment) {
   if (!appointment.slotEndTime) return false;

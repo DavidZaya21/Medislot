@@ -5,6 +5,8 @@ import { FormEvent, useEffect, useState } from "react";
 import { AppShell, Notice, PageHeader, RequireAuth } from "../components/AppShell";
 import { apiRequest, buildQuery } from "../lib/api";
 import type { CalendarSlot, Doctor } from "../lib/types";
+import { clinicDateTime, CLINIC_TIME_NOTICE } from "../lib/clinicTime";
+import { useClinicTimeNotice } from "../lib/useClinicTimeNotice";
 import { useAuth } from "../lib/useAuth";
 
 type CalendarResponse = {
@@ -27,6 +29,7 @@ export default function CalendarsPage() {
 
 function CalendarsContent() {
   const { auth, role } = useAuth();
+  const showClinicNotice = useClinicTimeNotice();
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [slots, setSlots] = useState<CalendarSlot[]>([]);
   const [doctorId, setDoctorId] = useState("");
@@ -149,7 +152,7 @@ function CalendarsContent() {
           </select>
         </label>
         <label>
-          Date
+          Date (clinic)
           <input onChange={(event) => setDate(event.target.value)} type="date" value={date} />
         </label>
         <label>
@@ -196,6 +199,7 @@ function CalendarsContent() {
       {error ? <Notice message={error} tone="error" /> : null}
       {message ? <Notice message={message} /> : null}
 
+      {role === "PATIENT" && showClinicNotice ? <Notice message={CLINIC_TIME_NOTICE} /> : null}
       <section className="table-card">
         <div className="table-scroll">
           <table>
@@ -251,12 +255,7 @@ function CalendarsContent() {
   );
 }
 
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
+const formatDateTime = clinicDateTime;
 
 function isExpiredSlot(slot: CalendarSlot) {
   return !slot.isBooked && new Date(slot.startTime).getTime() <= Date.now();

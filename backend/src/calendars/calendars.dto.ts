@@ -1,5 +1,5 @@
 import { Transform } from "class-transformer";
-import { IsBoolean, IsDateString, IsInt, IsOptional, Min } from "class-validator";
+import { IsBoolean, IsDateString, IsInt, IsOptional, Matches, Min } from "class-validator";
 
 export class CalendarListQueryDto {
   @IsOptional()
@@ -9,7 +9,8 @@ export class CalendarListQueryDto {
   doctorId?: number;
 
   @IsOptional()
-  @IsDateString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  @IsDateString({ strict: true })
   date?: string;
 
   @IsOptional()

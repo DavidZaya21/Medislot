@@ -1,6 +1,8 @@
+import { Prisma } from "@prisma/client";
 import { Inject, Injectable } from "@nestjs/common";
 
 import { toBadRequest, toConflict, toNotFound } from "../common/prisma-errors";
+import { warsawInstant } from "../common/clinic-time";
 import { serializeCalendar } from "../common/serializers";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -14,9 +16,10 @@ export class CalendarsService {
     if (query.doctorId) where.doctorId = query.doctorId;
     if (query.isBooked !== undefined) where.isBooked = query.isBooked;
     if (query.date) {
-      const start = new Date(`${query.date}T00:00:00.000Z`);
-      const end = new Date(`${query.date}T23:59:59.999Z`);
-      where.startTime = { gte: start, lte: end };
+      const nextDate = new Date(Date.parse(query.date + "T00:00:00Z") + 86_400_000).toISOString().slice(0, 10);
+      const start = new Date(warsawInstant(query.date, "00:00"));
+      const end = new Date(warsawInstant(nextDate, "00:00"));
+      where.startTime = { gte: start, lt: end };
     }
 
     const slots = await this.prisma.calendar.findMany({
@@ -36,28 +39,31 @@ export class CalendarsService {
     this.ensureTimeOrder(startTime, endTime);
     this.ensureFutureStart(startTime);
 
-    const conflict = await this.prisma.calendar.findFirst({
-      where: {
-        doctorId: input.doctorId,
-        startTime: { lt: endTime },
-        endTime: { gt: startTime },
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${input.doctorId} FOR UPDATE`);
+      const conflict = await tx.calendar.findFirst({
+        where: {
+          doctorId: input.doctorId,
+          startTime: { lt: endTime },
+          endTime: { gt: startTime },
+        },
+      });
 
-    if (conflict) {
-      throw toConflict("Calendar slot overlaps with an existing slot for this doctor");
-    }
+      if (conflict) {
+        throw toConflict("Calendar slot overlaps with an existing slot for this doctor");
+      }
 
-    const calendar = await this.prisma.calendar.create({
-      data: {
-        doctorId: input.doctorId,
-        startTime,
-        endTime,
-      },
-      include: { doctor: true },
-    });
+      const calendar = await tx.calendar.create({
+        data: {
+          doctorId: input.doctorId,
+          startTime,
+          endTime,
+        },
+        include: { doctor: true },
+      });
 
-    return serializeCalendar(calendar);
+      return serializeCalendar(calendar);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
   async getCalendarSlotById(calendarId: number) {
@@ -88,17 +94,32 @@ export class CalendarsService {
     this.ensureTimeOrder(startTime, endTime);
     this.ensureFutureStart(startTime);
 
-    const updated = await this.prisma.calendar.update({
-      where: { id: calendarId },
-      data: {
-        startTime,
-        endTime,
-        isBooked: input.isBooked,
-      },
-      include: { doctor: true },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${slot.doctorId} FOR UPDATE`);
+      const refreshed = await tx.calendar.findUnique({
+        where: { id: calendarId }, include: { appointments: true },
+      });
+      if (!refreshed) throw toNotFound("Calendar slot");
+      if (refreshed.appointments.length) {
+        throw toConflict("Calendar slot cannot be updated after it has been used by appointments");
+      }
+      const overlap = await tx.calendar.findFirst({
+        where: { doctorId: slot.doctorId, id: { not: calendarId },
+          startTime: { lt: endTime }, endTime: { gt: startTime } },
+      });
+      if (overlap) throw toConflict("Calendar slot overlaps with an existing slot for this doctor");
+      const updated = await tx.calendar.update({
+        where: { id: calendarId },
+        data: {
+          startTime,
+          endTime,
+          isBooked: input.isBooked,
+        },
+        include: { doctor: true },
+      });
 
-    return serializeCalendar(updated);
+      return serializeCalendar(updated);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
   async deleteCalendarSlotById(calendarId: number) {

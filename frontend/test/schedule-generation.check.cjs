@@ -33,6 +33,7 @@ Module._load = function (name, parent, ...rest) {
   if (name.endsWith("/api")) return { apiRequest: async (url, options) => {
     requests.push({ url, options });
     if (url === "/doctors") return { data: [{ id: 1, user: { name: "Test Doctor" } }] };
+    if (url === "/schedulePeriods") return { slotCount: 1 };
     if (response instanceof Error) throw response;
     return await response;
   } };
@@ -109,10 +110,28 @@ const submit = () => form().props.onSubmit({ preventDefault() {}, currentTarget:
   response = Object.assign(new Error("Bad Request"), { payload: { message: ["Invalid date", "Invalid duration"] } });
   await act(submit);
   assert.match(text(), /Invalid date; Invalid duration/);
-  assert.ok(requests.filter(({ url }) => url !== "/doctors").every(({ url, options }) =>
-    url === "/schedulePeriods/preview" && options.method === "POST"));
+  response = { doctorId: 1, timeZone: "Europe/Warsaw", slots: [
+    { startTime: "2026-11-20T08:00:00Z", endTime: "2026-11-20T08:30:00Z" },
+    { startTime: "2026-11-20T08:30:00Z", endTime: "2026-11-20T09:00:00Z" },
+  ] };
+  await act(submit);
+  const buttonNamed = (name) => view.root.findAllByType("button").find((button) => button.props.children === name);
+  const remove = view.root.findAllByType("button").find((button) => button.props["aria-label"]?.startsWith("Remove"));
+  await act(async () => remove.props.onClick());
+  await act(async () => buttonNamed("Publish schedule").props.onClick());
+  assert.match(text(), /Confirm publication/);
+  assert.match(text(), /Retained slots: .*1/);
+  await act(async () => buttonNamed("Confirm and publish").props.onClick());
+  const publication = requests.find(({ url }) => url === "/schedulePeriods");
+  assert.deepEqual(publication.options.body, {
+    doctorId: 1, startDate: values.startDate, endDate: values.endDate, workingWeekdays: [1, 5],
+    dailyStartTime: "09:00", dailyEndTime: "10:00", slotDurationMinutes: 30,
+    excludedDates: [], removedSlotIds: [0],
+  });
+  assert.doesNotMatch(text(), /Proposed schedule/);
+  assert.match(text(), /Schedule published successfully/);
   await act(async () => view.unmount());
-  console.log("PASS: admin and manager access; other roles denied, Warsaw winter/summer dates and times, counts, removal/restoration, input invalidation, stale-response rejection, loading, empty results, validation errors, preview-only requests.");
+  console.log("PASS: admin and manager access; other roles denied, Warsaw winter/summer dates and times, counts, removal/restoration, input invalidation, stale-response rejection, loading, empty results, validation errors, publication snapshot/removal indexes/confirmation and success clearing.");
 })().catch((error) => { console.error(error); process.exitCode = 1; })
   .finally(() => {
     Module._load = originalLoad;

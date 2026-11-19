@@ -420,6 +420,60 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /schedulePeriods:
+    post:
+      tags: [Schedule Periods]
+      summary: Publish a generated schedule period and its retained slots
+      description: >
+        ADMIN and MANAGER only. Regenerates the Warsaw preview from configuration;
+        removedSlotIds are unique zero-based indexes into its chronological slots.
+        Client-supplied slot times are ignored. At least one full slot must remain
+        and every retained start must be in the future. Inclusive date ranges may
+        not overlap an existing period for the same doctor, including dates with
+        no retained slots. Retained slot intervals may not overlap existing calendar
+        slots. Conflicts return 409. The period and slots are saved atomically.
+        Per-doctor database row locking serializes publication and manual calendar writes.
+        Legacy and manually created calendar slots may have no schedule period;
+        every slot created here references the newly created period.
+      operationId: publishSchedulePeriod
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/SchedulePreviewRequest"
+                - type: object
+                  required: [removedSlotIds]
+                  properties:
+                    removedSlotIds:
+                      type: array
+                      uniqueItems: true
+                      description: Zero-based indexes in the server-generated preview; use an empty array to retain all slots.
+                      items:
+                        type: integer
+                        minimum: 0
+                      example: [0, 1]
+      responses:
+        "201":
+          description: Period and all retained calendar slots published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishedSchedulePeriod"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
   /schedulePeriods/preview:
     post:
       tags: [Schedule Periods]
@@ -749,6 +803,7 @@ components:
         minimum: 1
     CalendarDateQuery:
       in: query
+      description: Filter by the slot start date in Europe/Warsaw (clinic midnight inclusive to next midnight exclusive).
       name: date
       required: false
       schema:
@@ -834,6 +889,53 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
 
   schemas:
+    PublishedSchedulePeriod:
+      type: object
+      required: [id, doctorId, startDate, endDate, workingWeekdays, dailyStartTime, dailyEndTime, slotDurationMinutes, excludedDates, removedSlotIds, publishedById, createdAt, timeZone, slotCount]
+      properties:
+        id:
+          type: integer
+        doctorId:
+          type: integer
+        startDate:
+          type: string
+          format: date-time
+          description: Inclusive civil date stored as a PostgreSQL DATE and serialized at UTC midnight.
+        endDate:
+          type: string
+          format: date-time
+        workingWeekdays:
+          type: array
+          items:
+            type: integer
+        dailyStartTime:
+          type: string
+        dailyEndTime:
+          type: string
+        slotDurationMinutes:
+          type: integer
+        excludedDates:
+          type: array
+          items:
+            type: string
+            format: date
+        removedSlotIds:
+          type: array
+          items:
+            type: integer
+        publishedById:
+          type: integer
+          description: Authenticated publishing user, assigned by the server.
+        createdAt:
+          type: string
+          format: date-time
+        timeZone:
+          type: string
+          enum: [Europe/Warsaw]
+        slotCount:
+          type: integer
+          minimum: 1
+
     SchedulePreviewRequest:
       type: object
       required: [doctorId, startDate, endDate, workingWeekdays, dailyStartTime, dailyEndTime, slotDurationMinutes, excludedDates]

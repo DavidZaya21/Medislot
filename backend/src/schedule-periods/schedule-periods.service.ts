@@ -1,41 +1,80 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { Role } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 
-import { toBadRequest, toNotFound } from "../common/prisma-errors";
+import { toBadRequest, toConflict, toNotFound } from "../common/prisma-errors";
 import { PrismaService } from "../prisma/prisma.service";
-import type { SchedulePreviewDto } from "./schedule-periods.dto";
+import type { AuthUser } from "../auth/auth.types";
+import type { PublishSchedulePeriodDto, SchedulePreviewDto } from "./schedule-periods.dto";
+
+import { warsawInstant } from "../common/clinic-time";
 
 const timeZone = "Europe/Warsaw";
 const minute = 60_000;
 const day = 24 * 60 * minute;
 const maxDays = 366;
 const maxSlots = 10_000;
-const warsawClock = new Intl.DateTimeFormat("sv-SE", {
-  timeZone, year: "numeric", month: "2-digit", day: "2-digit",
-  hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
-});
-
-function localTime(instant: number) {
-  const parts = Object.fromEntries(warsawClock.formatToParts(instant).map(({ type, value }) => [type, value]));
-  return Date.parse(`${parts.year.padStart(4, "0")}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}Z`);
-}
-
-function warsawInstant(date: string, time: string) {
-  const wallTime = Date.parse(`${date}T${time}:00Z`);
-  // Sample both sides of a possible Warsaw clock change, then round-trip
-  // each candidate to detect both skipped and repeated local times.
-  const offsets = new Set([-day, day].map((delta) => localTime(wallTime + delta) - (wallTime + delta)));
-  const matches = [...offsets].map((offset) => wallTime - offset)
-    .filter((candidate) => localTime(candidate) === wallTime);
-  if (matches.length !== 1) {
-    throw toBadRequest(`Daily boundary ${date} ${time} is ambiguous or does not exist in ${timeZone}`);
-  }
-  return matches[0];
-}
 
 @Injectable()
 export class SchedulePeriodsService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+
+  async publish(input: PublishSchedulePeriodDto, user: AuthUser) {
+    const preview = await this.preview(input);
+    const removed = new Set(input.removedSlotIds);
+    if (input.removedSlotIds.some((id) => id >= preview.slots.length)) {
+      throw toBadRequest("removedSlotIds must identify slots in the generated preview");
+    }
+    const retained = preview.slots.filter((_, index) => !removed.has(index));
+    if (!retained.length) throw toBadRequest("Publication must retain at least one slot");
+
+    return this.prisma.$transaction(async (tx) => {
+      // Manual calendar writers use the same per-doctor lock. READ COMMITTED
+      // ensures checks after waiting see the previous writer's committed data.
+      const doctors = await tx.$queryRaw<{ id: number }[]>(
+        Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${input.doctorId}
+        AND "role" = 'DOCTOR' FOR UPDATE`);
+      if (!doctors.length) throw toNotFound("Doctor");
+      if (retained.some((slot) => new Date(slot.startTime).getTime() <= Date.now())) {
+        throw toBadRequest("Cannot publish slots whose start time is already past");
+      }
+      const startDate = new Date(input.startDate + "T00:00:00Z");
+      const endDate = new Date(input.endDate + "T00:00:00Z");
+      const overlap = await tx.schedulePeriod.findFirst({
+        where: { doctorId: input.doctorId, startDate: { lte: endDate }, endDate: { gte: startDate } },
+        select: { id: true },
+      });
+      if (overlap) throw toConflict("Schedule period overlaps an existing period for this doctor");
+      const existing = await tx.calendar.findMany({
+        where: {
+          doctorId: input.doctorId,
+          startTime: { lt: new Date(retained[retained.length - 1].endTime) },
+          endTime: { gt: new Date(retained[0].startTime) },
+        },
+        select: { startTime: true, endTime: true },
+      });
+      if (retained.some((slot) => existing.some((other) =>
+        other.startTime < new Date(slot.endTime) && other.endTime > new Date(slot.startTime)))) {
+        throw toConflict("Published slots overlap existing calendar slots for this doctor");
+      }
+      const period = await tx.schedulePeriod.create({
+        data: {
+          doctorId: input.doctorId, startDate, endDate,
+          workingWeekdays: input.workingWeekdays,
+          dailyStartTime: input.dailyStartTime, dailyEndTime: input.dailyEndTime,
+          slotDurationMinutes: input.slotDurationMinutes,
+          excludedDates: input.excludedDates, removedSlotIds: input.removedSlotIds,
+          publishedById: user.userId,
+        },
+      });
+      await tx.calendar.createMany({
+        data: retained.map((slot) => ({
+          doctorId: input.doctorId, schedulePeriodId: period.id,
+          startTime: new Date(slot.startTime), endTime: new Date(slot.endTime),
+        })),
+      });
+      return { ...period, timeZone, slotCount: retained.length };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 15_000 });
+  }
 
   async preview(input: SchedulePreviewDto) {
     const first = Date.parse(`${input.startDate}T00:00:00Z`);

@@ -44,3 +44,12 @@ export class SchedulePreviewDto {
   @IsDateString({ strict: true }, { each: true })
   excludedDates!: string[];
 }
+
+export class PublishSchedulePeriodDto extends SchedulePreviewDto {
+  // Zero-based indexes in the chronologically ordered server-generated preview.
+  @IsArray()
+  @ArrayUnique()
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  removedSlotIds!: number[];
+}

@@ -8,7 +8,12 @@ import type { Doctor } from "../lib/types";
 import { useAuth } from "../lib/useAuth";
 
 type Slot = { startTime: string; endTime: string };
-type Preview = { doctorId: number; timeZone: string; slots: Slot[] };
+type Configuration = {
+  doctorId: number; startDate: string; endDate: string; workingWeekdays: number[];
+  dailyStartTime: string; dailyEndTime: string; slotDurationMinutes: number; excludedDates: string[];
+};
+type PreviewResponse = { doctorId: number; timeZone: string; slots: Slot[] };
+type Preview = PreviewResponse & { configuration: Configuration; doctorName: string };
 const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const dateFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Europe/Warsaw", year: "numeric", month: "2-digit", day: "2-digit",
@@ -48,6 +53,10 @@ function ScheduleGeneration() {
   const [removed, setRemoved] = useState<Set<number>>(new Set());
   const [invalidated, setInvalidated] = useState(false);
   const revision = useRef(0);
+  const publishingRef = useRef(false);
+  const [publishing, setPublishing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [success, setSuccess] = useState("");
 
   useEffect(() => {
     if (!auth) return;
@@ -61,6 +70,9 @@ function ScheduleGeneration() {
   }, [auth]);
 
   function invalidate() {
+    if (publishingRef.current) return;
+    setConfirming(false);
+    setSuccess("");
     revision.current++;
     setInvalidated(true);
     setPreview(null);
@@ -71,7 +83,9 @@ function ScheduleGeneration() {
 
   async function generate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!auth) return;
+    if (!auth || publishingRef.current) return;
+    setConfirming(false);
+    setSuccess("");
     const form = new FormData(event.currentTarget);
     const startDate = String(form.get("startDate"));
     const endDate = String(form.get("endDate"));
@@ -93,23 +107,54 @@ function ScheduleGeneration() {
     setLoading(true);
     setPreview(null);
     setRemoved(new Set());
+    const configuration: Configuration = {
+      doctorId: Number(form.get("doctorId")), startDate, endDate, workingWeekdays,
+      dailyStartTime, dailyEndTime, slotDurationMinutes: Number(form.get("duration")), excludedDates,
+    };
     try {
-      const result = await apiRequest<Preview>("/schedulePeriods/preview", {
+      const result = await apiRequest<PreviewResponse>("/schedulePeriods/preview", {
         method: "POST",
         token: auth.token,
-        body: {
-          doctorId: Number(form.get("doctorId")), startDate, endDate, workingWeekdays,
-          dailyStartTime, dailyEndTime, slotDurationMinutes: Number(form.get("duration")), excludedDates,
-        },
+        body: configuration,
       });
       if (request === revision.current) {
-        setPreview(result);
+        setPreview({
+          ...result, configuration,
+          doctorName: doctors.find(({ id }) => id === configuration.doctorId)?.user.name ?? "Selected doctor",
+        });
         setInvalidated(false);
       }
     } catch (caught) {
       if (request === revision.current) setError(errorMessage(caught));
     } finally {
       if (request === revision.current) setLoading(false);
+    }
+  }
+
+  async function publish() {
+    if (!auth || !preview || publishingRef.current || removed.size >= preview.slots.length) return;
+    publishingRef.current = true;
+    setPublishing(true);
+    setError("");
+    setSuccess("");
+    try {
+      const result = await apiRequest<{ slotCount: number }>("/schedulePeriods", {
+        method: "POST", token: auth.token,
+        body: { ...preview.configuration, removedSlotIds: [...removed].sort((a, b) => a - b) },
+      });
+      revision.current++;
+      setPreview(null);
+      setRemoved(new Set());
+      setInvalidated(false);
+      setSuccess(`Schedule published successfully: ${result.slotCount} slots are now available for booking.`);
+    } catch (caught) {
+      setError((caught as ApiError)?.status === 409
+        ? "Publication conflict: " + errorMessage(caught) + ". Generate a fresh preview and review the schedule before trying again."
+        : "Could not publish schedule: " + errorMessage(caught));
+    } finally {
+      publishingRef.current = false;
+      setPublishing(false);
+      setConfirming(false);
     }
   }
 
@@ -124,9 +169,10 @@ function ScheduleGeneration() {
   return (
     <>
       <PageHeader eyebrow="Schedules" title="Generate schedule preview" />
-      <p>All dates and times use Europe/Warsaw. The date range includes both the start and end dates. This preview is not saved.</p>
+      <p>All dates and times use Europe/Warsaw. The date range includes both the start and end dates. Preview changes are local until you confirm publication.</p>
       {doctorError ? <Notice tone="error" message={doctorError} /> : null}
       <form className="form-card" onSubmit={generate} onChange={invalidate}>
+        <fieldset disabled={publishing}>
         <div className="form-grid">
           <label>Doctor
             <select name="doctorId" required disabled={doctorsLoading || Boolean(doctorError)}>
@@ -155,8 +201,10 @@ function ScheduleGeneration() {
         <button className="button button-primary" type="submit" disabled={loading || doctorsLoading || Boolean(doctorError) || doctors.length === 0}>
           {loading ? "Generating…" : "Generate preview"}
         </button>
+        </fieldset>
       </form>
       {!doctorsLoading && !doctorError && doctors.length === 0 ? <Notice message="No doctors are available. A doctor account is needed before generating a schedule." /> : null}
+      {success ? <Notice message={success} /> : null}
       {error ? <Notice tone="error" message={error} /> : null}
       {invalidated && !loading ? <Notice message="Inputs changed. Generate a new preview to use these settings." /> : null}
       <div aria-live="polite">
@@ -165,6 +213,22 @@ function ScheduleGeneration() {
           <h2>Proposed schedule — Europe/Warsaw</h2>
           <p>Total: {preview.slots.length - removed.size} included / {preview.slots.length} generated ({removed.size} removed).</p>
           {preview.slots.length === 0 ? <Notice message="No full slots match these settings. Adjust the dates, weekdays, exclusions, hours, or duration and generate again." /> : null}
+          {confirming ? <section className="form-card" aria-label="Confirm schedule publication">
+            <h3>Confirm publication</h3>
+            <p>Doctor: {preview.doctorName}</p>
+            <p>Date range (inclusive): {preview.configuration.startDate} to {preview.configuration.endDate} — Europe/Warsaw</p>
+            <p>Retained slots: {preview.slots.length - removed.size}</p>
+            <p>These slots will become available for patient booking.</p>
+            <div className="row-actions">
+              <button className="button button-primary" type="button" disabled={publishing || removed.size >= preview.slots.length} onClick={publish}>
+                {publishing ? "Publishing…" : "Confirm and publish"}
+              </button>
+              <button className="button button-secondary" type="button" disabled={publishing} onClick={() => setConfirming(false)}>Cancel</button>
+            </div>
+          </section> : <button className="button button-primary" type="button"
+            disabled={publishing || preview.slots.length === removed.size} onClick={() => { setError(""); setConfirming(true); }}>
+            Publish schedule
+          </button>}
           {[...groups].map(([date, entries]) => <section className="table-card" key={date}>
             <h3>{date} — {entries.filter(({ index }) => !removed.has(index)).length} included / {entries.length} generated</h3>
             <div className="table-scroll"><table>
@@ -173,11 +237,11 @@ function ScheduleGeneration() {
                 <td>{timeFormatter.format(new Date(slot.startTime))}</td>
                 <td>{timeFormatter.format(new Date(slot.endTime))}</td>
                 <td>{removed.has(index) ? "Removed" : "Included"}</td>
-                <td><button className="button button-secondary" type="button" aria-label={`${removed.has(index) ? "Restore" : "Remove"} ${date} ${timeFormatter.format(new Date(slot.startTime))}`} onClick={() => setRemoved((current) => {
+                <td><button className="button button-secondary" type="button" disabled={publishing} aria-label={`${removed.has(index) ? "Restore" : "Remove"} ${date} ${timeFormatter.format(new Date(slot.startTime))}`} onClick={() => { setConfirming(false); setRemoved((current) => {
                   const next = new Set(current);
                   if (next.has(index)) next.delete(index); else next.add(index);
                   return next;
-                })}>{removed.has(index) ? "Restore" : "Remove"}</button></td>
+                }); }}>{removed.has(index) ? "Restore" : "Remove"}</button></td>
               </tr>)}</tbody>
             </table></div>
           </section>)}

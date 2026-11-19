@@ -35,3 +35,22 @@ test("calendar creation rejects past slots", async () => {
     },
   );
 });
+
+test("calendar date filters use Warsaw days in winter, summer and DST transitions", async () => {
+  for (const [date, start, end] of [
+    ["2030-01-07", "2030-01-06T23:00:00.000Z", "2030-01-07T23:00:00.000Z"],
+    ["2030-07-01", "2030-06-30T22:00:00.000Z", "2030-07-01T22:00:00.000Z"],
+    ["2026-03-29", "2026-03-28T23:00:00.000Z", "2026-03-29T22:00:00.000Z"],
+    ["2026-10-25", "2026-10-24T22:00:00.000Z", "2026-10-25T23:00:00.000Z"],
+  ]) {
+    let received: unknown;
+    const service = new CalendarsService({
+      calendar: { findMany: async (query: unknown) => { received = query; return []; } },
+    } as never);
+    await service.listCalendarSlots({ date });
+    assert.deepEqual(received, {
+      where: { startTime: { gte: new Date(start), lt: new Date(end) } },
+      include: { doctor: true }, orderBy: { startTime: "asc" },
+    });
+  }
+});
