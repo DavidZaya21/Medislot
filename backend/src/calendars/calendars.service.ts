@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { Inject, Injectable } from "@nestjs/common";
 
 import { toBadRequest, toConflict, toNotFound } from "../common/prisma-errors";
+import { lockDoctor } from "../common/doctor-lock";
 import { warsawInstant } from "../common/clinic-time";
 import { serializeCalendar } from "../common/serializers";
 import { PrismaService } from "../prisma/prisma.service";
@@ -15,6 +16,7 @@ export class CalendarsService {
 
     if (query.doctorId) where.doctorId = query.doctorId;
     if (query.isBooked !== undefined) where.isBooked = query.isBooked;
+    if (query.isBooked === false) where.isBlocked = false;
     if (query.date) {
       const nextDate = new Date(Date.parse(query.date + "T00:00:00Z") + 86_400_000).toISOString().slice(0, 10);
       const start = new Date(warsawInstant(query.date, "00:00"));
@@ -29,6 +31,23 @@ export class CalendarsService {
     });
 
     return { data: slots.map(serializeCalendar) };
+  }
+
+  async block(input: { doctorId: number; startTime: string; endTime: string }) {
+    const startTime = new Date(input.startTime);
+    const endTime = new Date(input.endTime);
+    this.ensureTimeOrder(startTime, endTime);
+    return this.prisma.$transaction(async (tx) => {
+      await lockDoctor(tx, input.doctorId);
+      const where = { doctorId: input.doctorId, schedulePeriodId: { not: null },
+        startTime: { lt: endTime }, endTime: { gt: startTime } };
+      const blocked = await tx.calendar.updateMany({ where: { ...where, isBlocked: false }, data: { isBlocked: true } });
+      const affected = await tx.appointment.updateMany({
+        where: { status: "CONFIRMED", calendar: { is: where } },
+        data: { status: "NEEDS_RESCHEDULING" },
+      });
+      return { blockedSlots: blocked.count, appointmentsNeedingRescheduling: affected.count };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 15_000 });
   }
 
   async createCalendarSlot(input: { doctorId: number; startTime: string; endTime: string }) {
@@ -103,6 +122,10 @@ export class CalendarsService {
       if (refreshed.appointments.length) {
         throw toConflict("Calendar slot cannot be updated after it has been used by appointments");
       }
+      if (refreshed.schedulePeriodId !== null && refreshed.schedulePeriodId !== undefined &&
+          (refreshed.startTime.getTime() !== startTime.getTime() || refreshed.endTime.getTime() !== endTime.getTime())) {
+        throw toConflict("Published slot times cannot be changed");
+      }
       const overlap = await tx.calendar.findFirst({
         where: { doctorId: slot.doctorId, id: { not: calendarId },
           startTime: { lt: endTime }, endTime: { gt: startTime } },
@@ -133,7 +156,15 @@ export class CalendarsService {
       throw toConflict("Calendar slot cannot be deleted after it has been used or booked");
     }
 
-    await this.prisma.calendar.delete({ where: { id: calendarId } });
+    await this.prisma.$transaction(async (tx) => {
+      await lockDoctor(tx, slot.doctorId);
+      const current = await tx.calendar.findUnique({ where: { id: calendarId }, include: { appointments: true } });
+      if (!current) throw toNotFound("Calendar slot");
+      if (current.isBooked || current.isBlocked || current.appointments.length) {
+        throw toConflict("Calendar slot cannot be deleted after it has been used, booked or blocked");
+      }
+      await tx.calendar.delete({ where: { id: calendarId } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
   private async ensureDoctor(doctorId: number) {

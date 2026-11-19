@@ -1,6 +1,6 @@
 export type Role = "PATIENT" | "DOCTOR" | "RECEPTIONIST" | "ADMIN" | "MANAGER";
 
-export type AppointmentStatus = "CONFIRMED" | "CANCELLED" | "COMPLETED" | "NO_SHOW";
+export type AppointmentStatus = "CONFIRMED" | "CANCELLED" | "COMPLETED" | "NO_SHOW" | "NEEDS_RESCHEDULING";
 
 export type User = {
   id: number;
@@ -25,6 +25,7 @@ export type CalendarSlot = {
   startTime: string;
   endTime: string;
   isBooked: boolean;
+  isBlocked: boolean;
   doctor?: Doctor;
 };
 

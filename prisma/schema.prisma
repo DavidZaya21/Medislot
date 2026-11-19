@@ -32,6 +32,7 @@ model Calendar {
   startTime DateTime
   endTime   DateTime
   isBooked  Boolean  @default(false)
+  isBlocked Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -70,6 +71,7 @@ enum AppointmentStatus {
   CANCELLED
   COMPLETED
   NO_SHOW
+  NEEDS_RESCHEDULING
 }
 
 model SchedulePeriod {

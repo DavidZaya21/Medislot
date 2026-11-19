@@ -25,6 +25,7 @@ export function serializeCalendar(
     startTime: calendar.startTime,
     endTime: calendar.endTime,
     isBooked: calendar.isBooked,
+    isBlocked: calendar.isBlocked,
     createdAt: calendar.createdAt,
     updatedAt: calendar.updatedAt,
     ...(calendar.doctor ? { doctor: serializeDoctor(calendar.doctor) } : {}),

@@ -4,7 +4,8 @@ import { Prisma, Role } from "@prisma/client";
 import type { AppointmentStatus, User } from "@prisma/client";
 
 import type { AuthUser } from "../auth/auth.types";
-import { mapPrismaError, toForbidden, toNotFound } from "../common/prisma-errors";
+import { mapPrismaError, toConflict, toForbidden, toNotFound } from "../common/prisma-errors";
+import { releaseReservation } from "../common/doctor-lock";
 import { serializeAppointment, serializeUser } from "../common/serializers";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -107,17 +108,29 @@ export class UsersService {
     if (!user) throw toNotFound("User");
 
     await this.prisma.$transaction(async (tx) => {
-      if (user.role === "DOCTOR") {
+      // Rare administrative operation: lock doctors in a consistent order before
+      // the account and appointment rows, preventing races with booking/blocking.
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE role = 'DOCTOR' ORDER BY id FOR UPDATE`);
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`);
+      const current = await tx.user.findUnique({ where: { id: userId } });
+      if (!current) throw toNotFound("User");
+      const affected = { OR: [{ doctorId: userId }, { patientId: userId }] };
+      if (await tx.appointment.findFirst({ where: { ...affected, status: "NEEDS_RESCHEDULING" } })) {
+        throw toConflict("Account has appointments awaiting rescheduling");
+      }
+      if (current.role === "DOCTOR") {
         await tx.appointment.deleteMany({ where: { doctorId: userId } });
         await tx.calendar.deleteMany({ where: { doctorId: userId } });
       }
-
-      if (user.role === "PATIENT") {
+      if (current.role === "PATIENT") {
+        const reservations = await tx.appointment.findMany({
+          where: { patientId: userId, status: "CONFIRMED" }, select: { calendarId: true },
+        });
         await tx.appointment.deleteMany({ where: { patientId: userId } });
+        for (const { calendarId } of reservations) await releaseReservation(tx, calendarId);
       }
-
       await tx.user.delete({ where: { id: userId } });
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15_000 });
   }
 
   async listAppointmentsByUser(

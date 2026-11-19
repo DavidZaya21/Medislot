@@ -26,7 +26,7 @@ type UsersResponse = {
   meta: PaginationMeta;
 };
 
-const statuses: Array<AppointmentStatus | ""> = ["", "CONFIRMED", "CANCELLED", "COMPLETED", "NO_SHOW"];
+const statuses: Array<AppointmentStatus | ""> = ["", "CONFIRMED", "CANCELLED", "COMPLETED", "NO_SHOW", "NEEDS_RESCHEDULING"];
 
 export default function AppointmentsPage() {
   return (
@@ -358,6 +358,7 @@ function AppointmentsContent() {
             <tbody>
               {appointments.map((appointment) => {
                 const canChangeStatus = canReview && appointment.status === "CONFIRMED";
+                const canCancel = canReview && (appointment.status === "CONFIRMED" || appointment.status === "NEEDS_RESCHEDULING");
                 const canCompleteAppointment = canChangeStatus && hasAppointmentEnded(appointment);
 
                 return (
@@ -375,12 +376,12 @@ function AppointmentsContent() {
                             Complete
                           </button>
                         ) : null}
-                        {canChangeStatus ? (
+                        {canCancel ? (
                           <button className="button button-secondary" onClick={() => updateAppointment(appointment.id, "CANCELLED", appointment.reason)} type="button">
                             Cancel
                           </button>
                         ) : null}
-                        {canDelete ? (
+                        {canDelete && appointment.status !== "NEEDS_RESCHEDULING" ? (
                           <button className="button button-danger" onClick={() => deleteAppointment(appointment.id)} type="button">
                             Delete
                           </button>

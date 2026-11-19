@@ -12,6 +12,7 @@ const roleCopy = {
   ADMIN: {
     title: "Manage the whole clinic from one operational view.",
     cards: [
+      ["Doctor unavailability", "Block published slots and flag appointments for rescheduling.", "/doctor-unavailability"],
       ["Generate schedule", "Preview proposed doctor availability.", "/schedule-generation"],
       ["Users", "Filter, paginate, and review all user accounts.", "/users"],
       ["Receptionists", "Create and maintain receptionist accounts.", "/receptionists"],
@@ -21,7 +22,7 @@ const roleCopy = {
   },
   MANAGER: {
     title: "Manager dashboard",
-    cards: [["Generate schedule", "Preview proposed doctor availability.", "/schedule-generation"]],
+    cards: [["Doctor unavailability", "Block published slots and flag appointments for rescheduling.", "/doctor-unavailability"], ["Generate schedule", "Preview proposed doctor availability.", "/schedule-generation"]],
   },
   RECEPTIONIST: {
     title: "Keep the appointment desk moving.",

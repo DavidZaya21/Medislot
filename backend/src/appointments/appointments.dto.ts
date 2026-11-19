@@ -1,6 +1,6 @@
 import { AppointmentStatus } from "@prisma/client";
 import { Transform } from "class-transformer";
-import { IsEnum, IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from "class-validator";
+import { IsEnum, IsIn, IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from "class-validator";
 
 export class AppointmentListQueryDto {
   @IsOptional()
@@ -31,7 +31,7 @@ export class CreateAppointmentDto {
 }
 
 export class UpdateAppointmentDto {
-  @IsEnum(AppointmentStatus)
+  @IsIn(["CONFIRMED", "CANCELLED", "COMPLETED", "NO_SHOW"])
   status!: AppointmentStatus;
 
   @IsString()

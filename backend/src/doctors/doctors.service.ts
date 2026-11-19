@@ -1,8 +1,10 @@
 import { Inject, Injectable } from "@nestjs/common";
 import bcrypt from "bcrypt";
+import { Prisma } from "@prisma/client";
 import type { AppointmentStatus } from "@prisma/client";
 
-import { mapPrismaError, toNotFound } from "../common/prisma-errors";
+import { mapPrismaError, toConflict, toNotFound } from "../common/prisma-errors";
+import { lockDoctor } from "../common/doctor-lock";
 import { serializeAppointment, serializeDoctor } from "../common/serializers";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -76,10 +78,14 @@ export class DoctorsService {
     await this.findDoctorOrThrow(doctorId);
 
     await this.prisma.$transaction(async (tx) => {
+      await lockDoctor(tx, doctorId);
+      if (await tx.appointment.findFirst({ where: { doctorId, status: "NEEDS_RESCHEDULING" } })) {
+        throw toConflict("Doctor has appointments awaiting rescheduling");
+      }
       await tx.appointment.deleteMany({ where: { doctorId } });
       await tx.calendar.deleteMany({ where: { doctorId } });
       await tx.user.delete({ where: { id: doctorId } });
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
   async listAppointmentsByDoctor(doctorId: number, status?: AppointmentStatus) {

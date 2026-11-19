@@ -11,10 +11,15 @@ compiled.paths = module.paths;
 compiled._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, file);
-const { clinicDate, clinicTime, clinicDateTime } = compiled.exports;
+const { clinicDate, clinicTime, clinicDateTime, clinicLocalToISO } = compiled.exports;
 
 for (const zone of ["Europe/Warsaw", "America/New_York"]) {
   process.env.TZ = zone;
+  assert.equal(clinicLocalToISO("2030-01-07T09:00"), "2030-01-07T08:00:00.000Z");
+  assert.equal(clinicLocalToISO("2030-07-01T09:00"), "2030-07-01T07:00:00.000Z");
+  for (const invalid of ["2026-03-29T02:30", "2026-10-25T02:30", "2026-02-30T09:00"]) {
+    assert.throws(() => clinicLocalToISO(invalid));
+  }
   for (const [instant, date, time] of [
     ["2030-01-06T23:00:00Z", "2030-01-07", "00:00"],
     ["2030-01-07T22:59:00Z", "2030-01-07", "23:59"],

@@ -1,5 +1,5 @@
 import { Transform } from "class-transformer";
-import { IsBoolean, IsDateString, IsInt, IsOptional, Matches, Min } from "class-validator";
+import { IsBoolean, IsEmpty, IsDateString, IsInt, IsOptional, Matches, Min } from "class-validator";
 
 export class CalendarListQueryDto {
   @IsOptional()
@@ -38,6 +38,12 @@ export class CreateCalendarDto {
 }
 
 export class UpdateCalendarDto {
+  @IsEmpty()
+  doctorId?: never;
+
+  @IsEmpty()
+  isBlocked?: never;
+
   @IsDateString()
   startTime!: string;
 
@@ -51,4 +57,18 @@ export class UpdateCalendarDto {
   })
   @IsBoolean()
   isBooked!: boolean;
+}
+
+export class BlockCalendarDto {
+  @IsInt()
+  @Min(1)
+  doctorId!: number;
+
+  @IsDateString({ strict: true })
+  @Matches(/T.*(?:Z|[+-]\d{2}:\d{2})$/)
+  startTime!: string;
+
+  @IsDateString({ strict: true })
+  @Matches(/T.*(?:Z|[+-]\d{2}:\d{2})$/)
+  endTime!: string;
 }

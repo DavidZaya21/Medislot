@@ -229,7 +229,7 @@ function CalendarsContent() {
                     </td>
                     {canManage ? (
                       <td className="row-actions">
-                        {!expired ? (
+                        {!expired && !slot.isBlocked ? (
                           <button className="button button-secondary" onClick={() => setSlotBooked(slot, !slot.isBooked)} type="button">
                             {slot.isBooked ? "Mark free" : "Mark booked"}
                           </button>
@@ -262,11 +262,13 @@ function isExpiredSlot(slot: CalendarSlot) {
 }
 
 function getSlotStatusLabel(slot: CalendarSlot, expired: boolean) {
+  if (slot.isBlocked) return "Blocked";
   if (slot.isBooked) return "Booked";
   return expired ? "Expired" : "Available";
 }
 
 function getSlotStatusClass(slot: CalendarSlot, expired: boolean) {
+  if (slot.isBlocked) return "status warning";
   if (slot.isBooked) return "status muted";
   return expired ? "status warning" : "status good";
 }

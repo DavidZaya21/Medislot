@@ -1,9 +1,10 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { Role } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 import type { AppointmentStatus } from "@prisma/client";
 
 import type { AuthUser } from "../auth/auth.types";
 import { toConflict, toNotFound } from "../common/prisma-errors";
+import { lockDoctor, releaseReservation, activeReservationStatuses } from "../common/doctor-lock";
 import { serializeAppointment } from "../common/serializers";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -45,7 +46,7 @@ export class AppointmentsService {
       throw toConflict("Selected calendar slot does not belong to the requested doctor");
     }
 
-    if (calendar.isBooked) {
+    if (calendar.isBooked || calendar.isBlocked) {
       throw toConflict("Selected calendar slot is no longer available");
     }
 
@@ -54,8 +55,9 @@ export class AppointmentsService {
     }
 
     const appointment = await this.prisma.$transaction(async (tx) => {
+      await lockDoctor(tx, input.doctorId);
       const refreshedSlot = await tx.calendar.findUnique({ where: { id: input.calendarId } });
-      if (!refreshedSlot || refreshedSlot.isBooked) {
+      if (!refreshedSlot || refreshedSlot.doctorId !== input.doctorId || refreshedSlot.isBooked || refreshedSlot.isBlocked) {
         throw toConflict("Selected calendar slot is no longer available");
       }
 
@@ -64,7 +66,7 @@ export class AppointmentsService {
       }
 
       const claimedSlot = await tx.calendar.updateMany({
-        where: { id: input.calendarId, isBooked: false },
+        where: { id: input.calendarId, doctorId: input.doctorId, isBooked: false, isBlocked: false },
         data: { isBooked: true },
       });
 
@@ -85,7 +87,7 @@ export class AppointmentsService {
           calendar: true,
         },
       });
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 15_000 });
 
     return serializeAppointment(appointment);
   }
@@ -105,7 +107,8 @@ export class AppointmentsService {
     });
     if (!current) throw toNotFound("Appointment");
 
-    if (current.status !== "CONFIRMED") {
+    if (input.status === "NEEDS_RESCHEDULING") throw toConflict("Rescheduling status is assigned only by blocking");
+    if (current.status !== "CONFIRMED" && !(current.status === "NEEDS_RESCHEDULING" && input.status === "CANCELLED")) {
       throw toConflict("Only confirmed appointments can be updated");
     }
 
@@ -116,6 +119,15 @@ export class AppointmentsService {
     const shouldFreeSlot = input.status === "CANCELLED";
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      await lockDoctor(tx, current.doctorId);
+      const refreshed = await tx.appointment.findUnique({ where: { id: appointmentId }, include: { calendar: true } });
+      if (!refreshed) throw toNotFound("Appointment");
+      if (refreshed.status !== "CONFIRMED" && !(refreshed.status === "NEEDS_RESCHEDULING" && input.status === "CANCELLED")) {
+        throw toConflict("Only confirmed appointments or rescheduling cancellations can be updated");
+      }
+      if (input.status === "COMPLETED" && refreshed.calendar.endTime > new Date()) {
+        throw toConflict("Cannot complete a future appointment");
+      }
       const appointment = await tx.appointment.update({
         where: { id: appointmentId },
         data: {
@@ -130,15 +142,13 @@ export class AppointmentsService {
       });
 
       if (shouldFreeSlot) {
-        await tx.calendar.update({
-          where: { id: appointment.calendarId },
-          data: { isBooked: false },
-        });
-        appointment.calendar.isBooked = false;
+        await releaseReservation(tx, appointment.calendarId);
+        const calendar = await tx.calendar.findUniqueOrThrow({ where: { id: appointment.calendarId } });
+        appointment.calendar.isBooked = calendar.isBooked;
       }
 
       return appointment;
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
 
     return serializeAppointment(updated);
   }
@@ -150,12 +160,17 @@ export class AppointmentsService {
     if (!appointment) throw toNotFound("Appointment");
 
     await this.prisma.$transaction(async (tx) => {
+      await lockDoctor(tx, appointment.doctorId);
+      const current = await tx.appointment.findUnique({ where: { id: appointmentId } });
+      if (!current) throw toNotFound("Appointment");
+      if (current.status === "NEEDS_RESCHEDULING") {
+        throw toConflict("Appointments awaiting rescheduling cannot be deleted");
+      }
       await tx.appointment.delete({ where: { id: appointmentId } });
-      await tx.calendar.update({
-        where: { id: appointment.calendarId },
-        data: { isBooked: false },
-      });
-    });
+      if (activeReservationStatuses.some((status) => status === current.status)) {
+        await releaseReservation(tx, current.calendarId);
+      }
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
   private async findAppointmentOrThrow(appointmentId: number) {

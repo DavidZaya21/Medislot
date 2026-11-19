@@ -10,6 +10,7 @@ import {
   Put,
   Query,
   UseGuards,
+  ValidationPipe,
 } from "@nestjs/common";
 import { Role } from "@prisma/client";
 
@@ -17,7 +18,7 @@ import { AuthGuard } from "../auth/auth.guard";
 import { RolesGuard } from "../auth/roles.guard";
 import { Roles } from "../auth/roles.decorator";
 import { CalendarsService } from "./calendars.service";
-import { CalendarListQueryDto, CreateCalendarDto, UpdateCalendarDto } from "./calendars.dto";
+import { BlockCalendarDto, CalendarListQueryDto, CreateCalendarDto, UpdateCalendarDto } from "./calendars.dto";
 
 @Controller("calendars")
 @UseGuards(AuthGuard, RolesGuard)
@@ -30,6 +31,12 @@ export class CalendarsController {
   @Get()
   listCalendarSlots(@Query() query: CalendarListQueryDto) {
     return this.calendarsService.listCalendarSlots(query);
+  }
+
+  @Post("block")
+  @Roles(Role.ADMIN, Role.MANAGER)
+  block(@Body(new ValidationPipe({ expectedType: BlockCalendarDto, transform: true, whitelist: true })) body: BlockCalendarDto) {
+    return this.calendarsService.block(body);
   }
 
   @Post()
@@ -47,7 +54,7 @@ export class CalendarsController {
   @Roles(Role.DOCTOR, Role.ADMIN)
   updateCalendarSlotById(
     @Param("calendarId", ParseIntPipe) calendarId: number,
-    @Body() body: UpdateCalendarDto,
+    @Body(new ValidationPipe({ expectedType: UpdateCalendarDto, transform: true, whitelist: true, forbidNonWhitelisted: true })) body: UpdateCalendarDto,
   ) {
     return this.calendarsService.updateCalendarSlotById(calendarId, body);
   }

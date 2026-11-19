@@ -566,6 +566,65 @@ paths:
         "409":
           $ref: "#/components/responses/Conflict"
 
+  /calendars/block:
+    post:
+      tags: [Calendars]
+      summary: Block existing published slots and flag confirmed appointments
+      description: >
+        ADMIN and MANAGER only. Accepts offset-qualified timestamps and requires startTime
+        before endTime. In a doctor-locked transaction, blocks existing published slots
+        where slot.startTime < endTime and slot.endTime > startTime, and changes only
+        CONFIRMED appointments on those slots to NEEDS_RESCHEDULING. Appointment identity,
+        reason and original slot times are preserved. Repeating the same block is safe.
+        Counts describe newly blocked slots and newly flagged appointments. Legacy/manual
+        slots are excluded. No persistent unavailability interval is stored: later
+        publication in a previously empty part of this range is not automatically blocked.
+      operationId: blockCalendarSlots
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [doctorId, startTime, endTime]
+              properties:
+                doctorId:
+                  type: integer
+                  minimum: 1
+                startTime:
+                  type: string
+                  format: date-time
+                  example: "2030-01-07T09:00:00+01:00"
+                endTime:
+                  type: string
+                  format: date-time
+                  example: "2030-01-07T11:00:00+01:00"
+      responses:
+        "201":
+          description: Blocking operation committed atomically
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [blockedSlots, appointmentsNeedingRescheduling]
+                properties:
+                  blockedSlots:
+                    type: integer
+                    minimum: 0
+                  appointmentsNeedingRescheduling:
+                    type: integer
+                    minimum: 0
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /calendars/{calendarId}:
     get:
       tags: [Calendars]
@@ -589,7 +648,7 @@ paths:
     put:
       tags: [Calendars]
       summary: Update a calendar slot
-      description: Doctors or admins update slot times or booking availability.
+      description: Doctors or admins update manual slot times or booking availability. Published slot times and doctor are immutable; isBlocked is not client-editable.
       operationId: updateCalendarSlotById
       security:
         - bearerAuth: []
@@ -740,6 +799,7 @@ paths:
     delete:
       tags: [Appointments]
       summary: Delete an appointment
+      description: Appointments awaiting rescheduling cannot be deleted; returns 409.
       operationId: deleteAppointment
       security:
         - bearerAuth: []
@@ -811,6 +871,7 @@ components:
         format: date
     CalendarBookedQuery:
       in: query
+      description: When false, only unbooked AND unblocked slots are returned.
       name: isBooked
       required: false
       schema:
@@ -1035,7 +1096,7 @@ components:
 
     AppointmentStatus:
       type: string
-      enum: [CONFIRMED, CANCELLED, COMPLETED, NO_SHOW]
+      enum: [CONFIRMED, CANCELLED, COMPLETED, NO_SHOW, NEEDS_RESCHEDULING]
 
     User:
       type: object
@@ -1234,7 +1295,7 @@ components:
 
     Calendar:
       type: object
-      required: [id, doctorId, startTime, endTime, isBooked, createdAt, updatedAt]
+      required: [id, doctorId, startTime, endTime, isBooked, isBlocked, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -1253,6 +1314,10 @@ components:
           type: string
           format: date-time
           example: "2026-05-21T15:30:00Z"
+        isBlocked:
+          type: boolean
+          readOnly: true
+          description: Independent of reservations; cancellation never clears a block.
         isBooked:
           type: boolean
           example: false
@@ -1284,6 +1349,7 @@ components:
 
     CalendarUpdateRequest:
       type: object
+      additionalProperties: false
       required: [startTime, endTime, isBooked]
       properties:
         startTime:
@@ -1367,7 +1433,9 @@ components:
       required: [status, reason]
       properties:
         status:
-          $ref: "#/components/schemas/AppointmentStatus"
+          type: string
+          enum: [CONFIRMED, CANCELLED, COMPLETED, NO_SHOW]
+          description: NEEDS_RESCHEDULING is server-assigned; such appointments may only be cancelled here.
         reason:
           type: string
           minLength: 5

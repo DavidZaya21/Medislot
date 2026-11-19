@@ -78,34 +78,30 @@ test("POST /appointments allows only one concurrent booking", async (t) => {
     fail = reject;
   });
 
-  // Route only interactive transactions through this extension. Both real
-  // SELECTs must observe the free slot before either callback can write.
-  const synchronized = prisma.$extends({
-    query: {
-      calendar: {
-        async findUnique({ args, query }) {
-          const result = await query(args);
-          if (args.where.id === slot.id) {
-            assert.equal(result?.isBooked, false);
-            if (++reads === 2) release();
-            await barrier;
-          }
-          return result;
-        },
-      },
-    },
-  });
-  const transaction = synchronized.$transaction.bind(synchronized);
+  // Both initial availability reads finish before either transaction acquires
+  // the doctor lock. Transactional rechecks must now run serially by design.
   const bookingService = app.get(AppointmentsService);
-  assert.ok(Reflect.set(bookingService, "prisma", new Proxy(prisma, {
+  const initialRead = prisma.calendar.findUnique.bind(prisma.calendar);
+  const calendar = new Proxy(prisma.calendar, {
     get(target, property) {
-      if (property === "$transaction") {
-        return (callback: unknown) => transaction(callback as never, { timeout: 12_000 });
-      }
+      if (property === "findUnique") return async (args: Parameters<typeof initialRead>[0]) => {
+        const result = await initialRead(args);
+        if (args.where.id === slot.id) {
+          assert.equal(result?.isBooked, false);
+          if (++reads === 2) release();
+          await barrier;
+        }
+        return result;
+      };
       return Reflect.get(target, property, target);
     },
-  })));
-  const timer = setTimeout(() => fail(new Error("Both transactional availability reads did not overlap")), 8_000);
+  });
+  Reflect.set(bookingService, "prisma", new Proxy(prisma, {
+    get(target, property) {
+      return property === "calendar" ? calendar : Reflect.get(target, property, target);
+    },
+  }));
+  const timer = setTimeout(() => fail(new Error("Both initial availability reads did not overlap")), 8_000);
   // The deadline may fire before any request reaches the barrier.
   void barrier.catch(() => {});
 
@@ -123,7 +119,7 @@ test("POST /appointments allows only one concurrent booking", async (t) => {
     });
     const savedSlot = await prisma.calendar.findUniqueOrThrow({ where: { id: slot.id } });
     t.diagnostic(JSON.stringify({
-      overlappingAvailableReads: reads,
+      overlappingInitialAvailabilityReads: reads,
       responses: responses.map(({ status, body }, i) => ({
         patientId: patients[i].id,
         status,
