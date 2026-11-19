@@ -85,6 +85,17 @@ test("schedule publication is atomic, validates removals, and serializes conflic
   assert.equal(saved.length, 2);
   assert.ok(saved.every((slot) => slot.schedulePeriodId === success.body.id));
   assert.equal(saved[0].startTime.toISOString(), "2030-01-09T08:00:00.000Z");
+  await assert.rejects(
+    () => prisma.schedulePeriod.delete({ where: { id: success.body.id } }),
+    (error: unknown) => {
+      assert.equal((error as { code?: string }).code, "P2003");
+      return true;
+    },
+  );
+  assert.ok(await prisma.schedulePeriod.findUnique({ where: { id: success.body.id } }));
+  assert.equal(await prisma.calendar.count({ where: { schedulePeriodId: success.body.id } }), 2);
+  t.diagnostic("Deleting a period with linked slots rejected with P2003; period and both slots preserved");
+
   // Jan 7 has no retained slots but remains inside the published date period.
   assert.equal((await publish({ ...input, endDate: input.startDate, removedSlotIds: [],
     dailyStartTime: "18:00", dailyEndTime: "19:00" })).status, 409);

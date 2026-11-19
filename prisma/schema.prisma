@@ -36,7 +36,7 @@ model Calendar {
   updatedAt DateTime @updatedAt
 
   schedulePeriodId Int?
-  schedulePeriod SchedulePeriod? @relation(fields: [schedulePeriodId], references: [id])
+  schedulePeriod SchedulePeriod? @relation(fields: [schedulePeriodId], references: [id], onDelete: Restrict)
 
   doctor       User           @relation(fields: [doctorId], references: [id])
   appointments Appointment[]
