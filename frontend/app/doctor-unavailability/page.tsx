@@ -1,5 +1,7 @@
 "use client";
 
+import { specializationLabel } from "../lib/specializations";
+
 import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
@@ -87,7 +89,7 @@ function UnavailabilityForm() {
           <label>Doctor
             <select name="doctorId" required disabled={loadingDoctors || Boolean(doctorError)}>
               <option value="">{loadingDoctors ? "Loading doctors…" : "Select a doctor"}</option>
-              {doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.user.name}{doctor.specialization ? ` — ${doctor.specialization}` : ""}</option>)}
+              {doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.user.name}{doctor.specialization ? ` — ${specializationLabel(doctor.specialization)}` : ""}</option>)}
             </select>
           </label>
           <label>Start (Europe/Warsaw)<input type="datetime-local" name="startTime" required /></label>

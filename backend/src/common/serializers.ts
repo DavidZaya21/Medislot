@@ -11,7 +11,7 @@ export function serializeDoctor(user: User) {
   return {
     id: user.id,
     userId: user.id,
-    specialization: user.specialization,
+    specialization: user.specialization ?? null,
     user: serializeUser(user),
   };
 }

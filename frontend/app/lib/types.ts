@@ -1,3 +1,5 @@
+import type { Specialization } from "./specializations";
+
 export type Role = "PATIENT" | "DOCTOR" | "RECEPTIONIST" | "ADMIN" | "MANAGER";
 
 export type AppointmentStatus = "CONFIRMED" | "CANCELLED" | "COMPLETED" | "NO_SHOW" | "NEEDS_RESCHEDULING";
@@ -7,7 +9,7 @@ export type User = {
   name: string;
   email: string;
   role: Role;
-  specialization?: string | null;
+  specialization?: Specialization | null;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -15,7 +17,7 @@ export type User = {
 export type Doctor = {
   id: number;
   userId: number;
-  specialization: string | null;
+  specialization: Specialization | null;
   user: User;
 };
 

@@ -1,5 +1,7 @@
 "use client";
 
+import { specializationLabel } from "../lib/specializations";
+
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { AppShell, Notice, PageHeader, RequireAuth } from "../components/AppShell";
@@ -177,7 +179,7 @@ function ScheduleGeneration() {
           <label>Doctor
             <select name="doctorId" required disabled={doctorsLoading || Boolean(doctorError)}>
               <option value="">{doctorsLoading ? "Loading doctors…" : "Select a doctor"}</option>
-              {doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.user.name}{doctor.specialization ? ` — ${doctor.specialization}` : ""}</option>)}
+              {doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.user.name}{doctor.specialization ? ` — ${specializationLabel(doctor.specialization)}` : ""}</option>)}
             </select>
           </label>
           <label>Start date (inclusive)<input type="date" name="startDate" required /></label>

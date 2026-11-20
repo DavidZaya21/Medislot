@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import bcrypt from "bcrypt";
 import { Prisma } from "@prisma/client";
-import type { AppointmentStatus } from "@prisma/client";
+import type { AppointmentStatus, Specialization } from "@prisma/client";
 
 import { mapPrismaError, toConflict, toNotFound } from "../common/prisma-errors";
 import { lockDoctor } from "../common/doctor-lock";
@@ -12,7 +12,7 @@ import { PrismaService } from "../prisma/prisma.service";
 export class DoctorsService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async listDoctors(query: { search?: string; specialization?: string } = {}) {
+  async listDoctors(query: { search?: string; specialization?: Specialization } = {}) {
     const doctors = await this.prisma.user.findMany({
       where: {
         role: "DOCTOR",
@@ -25,7 +25,7 @@ export class DoctorsService {
             }
           : {}),
         ...(query.specialization
-          ? { specialization: { contains: query.specialization, mode: "insensitive" } }
+          ? { specialization: query.specialization }
           : {}),
       },
       orderBy: { id: "asc" },
@@ -40,7 +40,7 @@ export class DoctorsService {
     name: string;
     email: string;
     password: string;
-    specialization: string;
+    specialization: Specialization;
   }) {
     try {
       const user = await this.prisma.user.create({
@@ -65,7 +65,7 @@ export class DoctorsService {
     return serializeDoctor(user);
   }
 
-  async updateDoctorById(doctorId: number, input: { specialization: string }) {
+  async updateDoctorById(doctorId: number, input: { specialization: Specialization }) {
     await this.findDoctorOrThrow(doctorId);
     const user = await this.prisma.user.update({
       where: { id: doctorId },

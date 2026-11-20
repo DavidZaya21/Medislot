@@ -212,11 +212,9 @@ paths:
         - in: query
           name: specialization
           required: false
-          description: Filter doctors by specialization.
+          description: Exact specialization enum filter; substring matching is not supported.
           schema:
-            type: string
-            minLength: 2
-            maxLength: 100
+            $ref: "#/components/schemas/Specialization"
       responses:
         "200":
           description: Doctors returned successfully
@@ -1090,6 +1088,17 @@ components:
           items:
             type: string
 
+    Specialization:
+      type: string
+      enum: [GENERAL_PRACTICE, CARDIOLOGY, NEUROLOGY, ORTHOPAEDICS, PEDIATRICS, DERMATOLOGY, OPHTHALMOLOGY, ENT, GYNAECOLOGY, UROLOGY]
+      description: Fixed doctor specialization code. ENT is displayed as Ear, nose and throat.
+
+    NullableSpecialization:
+      type: string
+      nullable: true
+      enum: [GENERAL_PRACTICE, CARDIOLOGY, NEUROLOGY, ORTHOPAEDICS, PEDIATRICS, DERMATOLOGY, OPHTHALMOLOGY, ENT, GYNAECOLOGY, UROLOGY, null]
+      description: Legacy records and non-doctors may have no specialization.
+
     Role:
       type: string
       enum: [PATIENT, DOCTOR, RECEPTIONIST, ADMIN, MANAGER]
@@ -1117,6 +1126,8 @@ components:
           example: anna.kowalska@example.com
         role:
           $ref: "#/components/schemas/Role"
+        specialization:
+          $ref: "#/components/schemas/NullableSpecialization"
         createdAt:
           type: string
           format: date-time
@@ -1225,10 +1236,7 @@ components:
           minimum: 1
           example: 2
         specialization:
-          type: string
-          minLength: 2
-          maxLength: 100
-          example: Cardiology
+          $ref: "#/components/schemas/NullableSpecialization"
         user:
           $ref: "#/components/schemas/User"
 
@@ -1280,18 +1288,14 @@ components:
           minLength: 8
           maxLength: 255
         specialization:
-          type: string
-          minLength: 2
-          maxLength: 100
+          $ref: "#/components/schemas/Specialization"
 
     DoctorUpdateRequest:
       type: object
       required: [specialization]
       properties:
         specialization:
-          type: string
-          minLength: 2
-          maxLength: 100
+          $ref: "#/components/schemas/Specialization"
 
     Calendar:
       type: object

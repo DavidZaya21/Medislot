@@ -1,5 +1,7 @@
 "use client";
 
+import { specializationLabel } from "../lib/specializations";
+
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { AppShell, Notice, PageHeader, RequireAuth } from "../components/AppShell";
@@ -293,7 +295,7 @@ function AppointmentsContent() {
                 <option value="">Select doctor</option>
                 {doctors.map((doctor) => (
                   <option key={doctor.id} value={doctor.userId}>
-                    {doctor.user.name} - {doctor.specialization}
+                    {doctor.user.name} - {specializationLabel(doctor.specialization)}
                   </option>
                 ))}
               </select>

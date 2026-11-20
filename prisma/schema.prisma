@@ -15,7 +15,7 @@ model User {
   email          String   @unique
   password       String
   role           Role
-  specialization String?
+  specialization Specialization?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -92,4 +92,17 @@ model SchedulePeriod {
   slots               Calendar[]
 
   @@index([doctorId, startDate, endDate])
+}
+
+enum Specialization {
+  GENERAL_PRACTICE
+  CARDIOLOGY
+  NEUROLOGY
+  ORTHOPAEDICS
+  PEDIATRICS
+  DERMATOLOGY
+  OPHTHALMOLOGY
+  ENT
+  GYNAECOLOGY
+  UROLOGY
 }

@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AppointmentStatus } from "@prisma/client";
+import { AppointmentStatus, Specialization } from "@prisma/client";
 
 import { DoctorsController } from "../src/doctors/doctors.controller";
 import { DoctorsService } from "../src/doctors/doctors.service";
 import { createSpy } from "./helpers";
 
 test("GET /doctors lists doctors", async () => {
-  const response = { data: [{ id: 5, specialization: "Cardiology" }] };
+  const response = { data: [{ id: 5, specialization: Specialization.CARDIOLOGY }] };
   const listDoctors = createSpy(async (query?: unknown) => response);
   const service = { listDoctors: listDoctors.fn } as unknown as DoctorsService;
   const controller = new DoctorsController(service);
 
-  const query = { search: "anna", specialization: "Cardiology" };
+  const query = { search: "anna", specialization: Specialization.CARDIOLOGY };
   const result = await controller.listDoctors(query);
 
   assert.deepStrictEqual(result, response);
@@ -28,7 +28,7 @@ test("POST /doctors creates a doctor", async () => {
     name: "Dr. Anna",
     email: "doctor@example.com",
     password: "password123",
-    specialization: "Cardiology",
+    specialization: Specialization.CARDIOLOGY,
   };
 
   const result = await controller.createDoctor(body);
@@ -38,7 +38,7 @@ test("POST /doctors creates a doctor", async () => {
 });
 
 test("GET /doctors/:doctorId returns a doctor", async () => {
-  const response = { id: 5, specialization: "Cardiology" };
+  const response = { id: 5, specialization: Specialization.CARDIOLOGY };
   const getDoctorById = createSpy(async (doctorId: number) => response);
   const service = { getDoctorById: getDoctorById.fn } as unknown as DoctorsService;
   const controller = new DoctorsController(service);
@@ -50,11 +50,11 @@ test("GET /doctors/:doctorId returns a doctor", async () => {
 });
 
 test("PUT /doctors/:doctorId updates a doctor", async () => {
-  const response = { id: 5, specialization: "Neurology" };
+  const response = { id: 5, specialization: Specialization.NEUROLOGY };
   const updateDoctorById = createSpy(async (doctorId: number, input: unknown) => response);
   const service = { updateDoctorById: updateDoctorById.fn } as unknown as DoctorsService;
   const controller = new DoctorsController(service);
-  const body = { specialization: "Neurology" };
+  const body = { specialization: Specialization.NEUROLOGY };
 
   const result = await controller.updateDoctorById(5, body);
 

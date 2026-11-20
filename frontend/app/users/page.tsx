@@ -1,5 +1,7 @@
 "use client";
 
+import { specializationLabel } from "../lib/specializations";
+
 import { FormEvent, useEffect, useState } from "react";
 
 import { AppShell, Notice, PageHeader, RequireAuth } from "../components/AppShell";
@@ -214,7 +216,7 @@ function UsersTable() {
                   <td>{user.name}</td>
                   <td>{user.email}</td>
                   <td><span className="role-badge">{userType(user.role)}</span></td>
-                  <td>{user.specialization ?? "-"}</td>
+                  <td>{specializationLabel(user.specialization)}</td>
                   {canManage ? (
                     <td>
                       <div className="row-actions">

@@ -1,5 +1,7 @@
 "use client";
 
+import { specializationLabel } from "../lib/specializations";
+
 import { FormEvent, useEffect, useState } from "react";
 
 import { AppShell, Notice, PageHeader, RequireAuth } from "../components/AppShell";
@@ -146,7 +148,7 @@ function CalendarsContent() {
             <option value="">All doctors</option>
             {doctors.map((doctor) => (
               <option key={doctor.id} value={doctor.userId}>
-                {doctor.user.name} - {doctor.specialization}
+                {doctor.user.name} - {specializationLabel(doctor.specialization)}
               </option>
             ))}
           </select>

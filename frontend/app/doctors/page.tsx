@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { AppShell, Notice, PageHeader, RequireAuth } from "../components/AppShell";
 import { apiRequest, buildQuery } from "../lib/api";
 import type { Doctor } from "../lib/types";
+import { specializationLabel, specializationOptions, type Specialization } from "../lib/specializations";
 import { useAuth } from "../lib/useAuth";
 
 type DoctorsResponse = {
@@ -24,11 +25,11 @@ export default function DoctorsPage() {
 function DoctorsContent() {
   const { auth, role } = useAuth();
   const [search, setSearch] = useState("");
-  const [specialization, setSpecialization] = useState("");
+  const [specialization, setSpecialization] = useState<Specialization | "">("");
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [editingSpecialization, setEditingSpecialization] = useState("");
+  const [editingSpecialization, setEditingSpecialization] = useState<Specialization | "">("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -40,11 +41,10 @@ function DoctorsContent() {
     setError("");
     setMessage("");
     const normalizedSearch = nextSearch.trim();
-    const normalizedSpecialization = nextSpecialization.trim();
     apiRequest<DoctorsResponse>(
       `/doctors${buildQuery({
         search: normalizedSearch.length >= 2 ? normalizedSearch : undefined,
-        specialization: normalizedSpecialization.length >= 2 ? normalizedSpecialization : undefined,
+        specialization: nextSpecialization || undefined,
       })}`,
       { token: auth.token },
     )
@@ -91,7 +91,7 @@ function DoctorsContent() {
   }
 
   async function updateDoctor(doctorId: number) {
-    if (!auth) return;
+    if (!auth || !editingSpecialization) return;
     setMessage("");
     setError("");
     try {
@@ -159,7 +159,10 @@ function DoctorsContent() {
             </label>
             <label className="wide">
               Specialization
-              <input maxLength={100} minLength={2} name="specialization" required type="text" />
+              <select name="specialization" required defaultValue="">
+                <option value="" disabled>Select a specialization</option>
+                {specializationOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
             </label>
           </div>
           <button className="button button-primary" type="submit">Create doctor</button>
@@ -169,25 +172,15 @@ function DoctorsContent() {
       <form className="filter-card filter-card-fields with-action" onSubmit={handleSubmit}>
         <label>
           Search
-          <input
-            maxLength={100}
-            minLength={2}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Name or email"
-            type="search"
-            value={search}
-          />
+          <input maxLength={100} minLength={2} onChange={(event) => setSearch(event.target.value)}
+            placeholder="Name or email" type="search" value={search} />
         </label>
         <label>
           Specialization
-          <input
-            maxLength={100}
-            minLength={2}
-            onChange={(event) => setSpecialization(event.target.value)}
-            placeholder="Cardiology, pediatrics..."
-            type="search"
-            value={specialization}
-          />
+          <select value={specialization} onChange={(event) => setSpecialization(event.target.value as Specialization | "")}>
+            <option value="">All specializations</option>
+            {specializationOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
         </label>
         <button className="button button-primary" disabled={loading} type="submit">
           Filter
@@ -227,22 +220,21 @@ function DoctorsContent() {
                   <td>{doctor.user.email}</td>
                   <td>
                     {editingId === doctor.id ? (
-                      <input
-                        maxLength={100}
-                        minLength={2}
-                        onChange={(event) => setEditingSpecialization(event.target.value)}
-                        required
-                        value={editingSpecialization}
-                      />
+                      <select aria-label="Edit specialization" required
+                        onChange={(event) => setEditingSpecialization(event.target.value as Specialization | "")}
+                        value={editingSpecialization}>
+                        <option value="" disabled>Select a specialization</option>
+                        {specializationOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
                     ) : (
-                      doctor.specialization ?? "General practice"
+                      specializationLabel(doctor.specialization)
                     )}
                   </td>
                   {canManage ? (
                     <td>
                       {editingId === doctor.id ? (
                         <div className="row-actions">
-                          <button className="button button-primary" onClick={() => updateDoctor(doctor.id)} type="button">
+                          <button className="button button-primary" onClick={() => updateDoctor(doctor.id)} disabled={!editingSpecialization} type="button">
                             Save
                           </button>
                           <button className="button button-secondary" onClick={() => setEditingId(null)} type="button">

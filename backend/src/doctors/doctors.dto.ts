@@ -1,4 +1,5 @@
-import { IsString, MaxLength, MinLength, IsEmail, IsOptional } from "class-validator";
+import { Specialization } from "@prisma/client";
+import { IsEnum, IsString, MaxLength, MinLength, IsEmail, IsOptional } from "class-validator";
 
 export class DoctorListQueryDto {
   @IsOptional()
@@ -8,10 +9,8 @@ export class DoctorListQueryDto {
   search?: string;
 
   @IsOptional()
-  @IsString()
-  @MinLength(2)
-  @MaxLength(100)
-  specialization?: string;
+  @IsEnum(Specialization)
+  specialization?: Specialization;
 }
 
 export class CreateDoctorDto {
@@ -28,17 +27,13 @@ export class CreateDoctorDto {
   @MaxLength(255)
   password!: string;
 
-  @IsString()
-  @MinLength(2)
-  @MaxLength(100)
-  specialization!: string;
+  @IsEnum(Specialization)
+  specialization!: Specialization;
 }
 
 export class UpdateDoctorDto {
-  @IsString()
-  @MinLength(2)
-  @MaxLength(100)
-  specialization!: string;
+  @IsEnum(Specialization)
+  specialization!: Specialization;
 }
 
 export class DoctorAppointmentsQueryDto {
