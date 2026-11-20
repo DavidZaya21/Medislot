@@ -574,6 +574,7 @@ paths:
         where slot.startTime < endTime and slot.endTime > startTime, and changes only
         CONFIRMED appointments on those slots to NEEDS_RESCHEDULING. Appointment identity,
         reason and original slot times are preserved. Repeating the same block is safe.
+        Each changed appointment version increments; repeating a block without changing status does not increment it.
         Counts describe newly blocked slots and newly flagged appointments. Legacy/manual
         slots are excluded. No persistent unavailability interval is stored: later
         publication in a previously empty part of this range is not automatically blocked.
@@ -744,10 +745,122 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /appointments/{appointmentId}/reschedule-options:
+    get:
+      tags: [Appointments]
+      summary: Browse suitable replacement slots for an appointment
+      description: >
+        PATIENT (own appointment only) or RECEPTIONIST. Applies current status/cutoff,
+        future/published/unblocked/unbooked, exact duration, specialization and patient
+        CONFIRMED-overlap rules. Original doctor's slots appear first, then alternatives;
+        each group is chronological. Returns no other patient appointment details.
+        Browsing reserves nothing. Compare returned calendarId and version with the open
+        confirmation; any mismatch requires explicit reload. POST rechecks all eligibility.
+      operationId: listRescheduleOptions
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AppointmentIdPath"
+      responses:
+        "200":
+          description: Current appointment snapshot and suitable slots (possibly empty).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [appointment, data]
+                properties:
+                  appointment:
+                    $ref: "#/components/schemas/Appointment"
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Calendar"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Current appointment status or cutoff does not permit a move.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /appointments/{appointmentId}/reschedule:
+    post:
+      tags: [Appointments]
+      summary: Move an appointment atomically and append rescheduling history
+      description: >
+        PATIENT (own appointments only) and RECEPTIONIST only. Retains appointment ID and
+        visit reason. Both currentCalendarId and expectedVersion must match locked state;
+        stale confirmations, including A-to-B-to-A moves, return 409 instructing reload.
+        CONFIRMED appointments require at least 24 elapsed hours before their current start
+        for patients; receptionists may move them strictly before that start. NEEDS_RESCHEDULING
+        appointments are exempt from both original-time cutoffs, even after their time passed.
+        CANCELLED, COMPLETED and NO_SHOW cannot move. Replacement must be different, future,
+        published, unblocked, unbooked, and have exactly the same elapsed duration. A different
+        doctor requires non-null equal specialization enums; the same doctor is allowed with
+        null specialization. Only other CONFIRMED appointments prevent patient overlaps;
+        adjacent intervals are allowed. Success claims the replacement, updates doctor/calendar
+        and status to CONFIRMED, increments version, safely releases the old reservation without
+        clearing its block, and appends exactly one history entry. Recovery moves regain the normal
+        cutoff at their new confirmed time. History reason and confirming actor are server-assigned.
+        History counts moves; version includes other appointment edits and blocking and is not a move count.
+        All writes roll back on failure. Doctor locks are acquired in ascending ID order before
+        patient and appointment locks. Ordinary booking uses the same patient overlap protection.
+      operationId: rescheduleAppointment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AppointmentIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RescheduleAppointmentRequest"
+      responses:
+        "200":
+          description: Same appointment ID, updated location/version and the newly appended immutable time snapshots
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Appointment"
+                  - type: object
+                    required: [historyEntry, rescheduleCount]
+                    properties:
+                      rescheduleCount:
+                        type: integer
+                        minimum: 1
+                        description: Count of persisted history entries, not the appointment version.
+                      historyEntry:
+                        $ref: "#/components/schemas/AppointmentRescheduleHistory"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Stale confirmation (reload required), cutoff/status/eligibility failure, patient overlap or unavailable replacement; no writes committed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /appointments/{appointmentId}:
     get:
       tags: [Appointments]
       summary: Get a single appointment by id
+      description: Patients may read only their own appointments; doctors only appointments assigned to them. Admins and receptionists retain access. Managers are forbidden.
       operationId: getAppointmentById
       security:
         - bearerAuth: []
@@ -762,6 +875,8 @@ paths:
                 $ref: "#/components/schemas/Appointment"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
     put:
@@ -797,7 +912,7 @@ paths:
     delete:
       tags: [Appointments]
       summary: Delete an appointment
-      description: Appointments awaiting rescheduling cannot be deleted; returns 409.
+      description: Appointments awaiting rescheduling or with rescheduling history cannot be deleted; returns 409.
       operationId: deleteAppointment
       security:
         - bearerAuth: []
@@ -1368,7 +1483,7 @@ components:
     Appointment:
       type: object
       required:
-        [id, patientId, doctorId, calendarId, status, reason, patient, doctor]
+        [id, patientId, doctorId, calendarId, status, reason, version, patient, doctor]
       properties:
         id:
           type: integer
@@ -1389,6 +1504,16 @@ components:
           format: int32
           minimum: 1
           example: 20
+        version:
+          type: integer
+          minimum: 1
+          readOnly: true
+          description: Starts at 1; increments on moves, status/reason updates and blocking transitions. Not a move count.
+        rescheduleCount:
+          type: integer
+          minimum: 0
+          readOnly: true
+          description: Persisted move count, included on appointment reads and successful moves.
         status:
           $ref: "#/components/schemas/AppointmentStatus"
         reason:
@@ -1410,6 +1535,65 @@ components:
           $ref: "#/components/schemas/User"
         doctor:
           $ref: "#/components/schemas/Doctor"
+
+    RescheduleAppointmentRequest:
+      type: object
+      required: [currentCalendarId, newCalendarId, expectedVersion]
+      properties:
+        currentCalendarId:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        newCalendarId:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        expectedVersion:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+          description: Last version returned for this appointment. Reload on a stale 409; do not blindly retry old confirmations.
+
+    AppointmentRescheduleHistory:
+      type: object
+      description: Append-only through the API. Snapshot doctor/calendar IDs remain meaningful even if an old unused calendar slot is later removed. Appointment and actor deletion are restricted.
+      required: [id, appointmentId, appointmentVersion, previousDoctorId, newDoctorId, previousCalendarId, newCalendarId, previousStartTime, previousEndTime, newStartTime, newEndTime, reason, actorId, createdAt]
+      properties:
+        id:
+          type: integer
+        appointmentId:
+          type: integer
+        appointmentVersion:
+          type: integer
+          description: Appointment version immediately after this move; not the number of moves.
+        previousDoctorId:
+          type: integer
+        newDoctorId:
+          type: integer
+        previousCalendarId:
+          type: integer
+        newCalendarId:
+          type: integer
+        previousStartTime:
+          type: string
+          format: date-time
+        previousEndTime:
+          type: string
+          format: date-time
+        newStartTime:
+          type: string
+          format: date-time
+        newEndTime:
+          type: string
+          format: date-time
+        reason:
+          type: string
+          enum: [DOCTOR_UNAVAILABLE, PATIENT_REQUESTED]
+        actorId:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
 
     AppointmentCreateRequest:
       type: object

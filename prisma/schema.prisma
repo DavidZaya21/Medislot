@@ -24,6 +24,7 @@ model User {
   calendarSlots       Calendar[]
   schedulePeriods     SchedulePeriod[] @relation("PeriodDoctor")
   publishedPeriods    SchedulePeriod[] @relation("PeriodPublisher")
+  confirmedReschedules AppointmentRescheduleHistory[] @relation("RescheduleActor")
 }
 
 model Calendar {
@@ -50,12 +51,14 @@ model Appointment {
   calendarId Int
   status     AppointmentStatus @default(CONFIRMED)
   reason     String
+  version    Int @default(1)
   createdAt  DateTime          @default(now())
   updatedAt  DateTime          @updatedAt
 
   patient  User     @relation("PatientAppointments", fields: [patientId], references: [id])
   doctor   User     @relation("DoctorAppointments", fields: [doctorId], references: [id])
   calendar Calendar @relation(fields: [calendarId], references: [id])
+  rescheduleHistory AppointmentRescheduleHistory[]
 }
 
 enum Role {
@@ -105,4 +108,31 @@ enum Specialization {
   ENT
   GYNAECOLOGY
   UROLOGY
+}
+
+enum RescheduleReason {
+  DOCTOR_UNAVAILABLE
+  PATIENT_REQUESTED
+}
+
+model AppointmentRescheduleHistory {
+  id                 Int @id @default(autoincrement())
+  appointmentId      Int
+  appointmentVersion Int
+  previousDoctorId   Int
+  newDoctorId        Int
+  previousCalendarId Int
+  newCalendarId      Int
+  previousStartTime  DateTime
+  previousEndTime    DateTime
+  newStartTime       DateTime
+  newEndTime         DateTime
+  reason             RescheduleReason
+  actorId            Int
+  createdAt          DateTime @default(now())
+  appointment        Appointment @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  actor              User @relation("RescheduleActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([appointmentId, appointmentVersion], map: "AppointmentRescheduleHistory_appointment_version_key")
+  @@index([actorId])
 }

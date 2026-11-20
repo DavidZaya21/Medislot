@@ -44,7 +44,7 @@ export class CalendarsService {
       const blocked = await tx.calendar.updateMany({ where: { ...where, isBlocked: false }, data: { isBlocked: true } });
       const affected = await tx.appointment.updateMany({
         where: { status: "CONFIRMED", calendar: { is: where } },
-        data: { status: "NEEDS_RESCHEDULING" },
+        data: { status: "NEEDS_RESCHEDULING", version: { increment: 1 } },
       });
       return { blockedSlots: blocked.count, appointmentsNeedingRescheduling: affected.count };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 15_000 });

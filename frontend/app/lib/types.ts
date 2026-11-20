@@ -37,6 +37,8 @@ export type Appointment = {
   doctorId: number;
   calendarId: number;
   status: AppointmentStatus;
+  version: number;
+  rescheduleCount?: number;
   reason: string;
   slotStartTime?: string;
   slotEndTime?: string;

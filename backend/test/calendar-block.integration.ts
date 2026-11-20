@@ -110,7 +110,8 @@ test("blocking preserves records and serializes appointment mutations", async (t
   assert.deepEqual(blocked.body, { blockedSlots: 2, appointmentsNeedingRescheduling: 1 });
   const changed = await prisma.appointment.findUniqueOrThrow({ where: { id: original.id } });
   assert.equal(changed.status, "NEEDS_RESCHEDULING");
-  assert.deepEqual({ ...changed, status: original.status, updatedAt: original.updatedAt }, original);
+  assert.equal(changed.version, original.version + 1);
+  assert.deepEqual({ ...changed, status: original.status, version: original.version, updatedAt: original.updatedAt }, original);
   assert.equal((await prisma.appointment.findUniqueOrThrow({ where: { id: terminal.id } })).status, "COMPLETED");
   for (const id of [before.id, after.id, legacy.id]) assert.equal((await prisma.calendar.findUniqueOrThrow({ where: { id } })).isBlocked, false);
   for (const id of [booked.id, free.id]) assert.equal((await prisma.calendar.findUniqueOrThrow({ where: { id } })).isBlocked, true);

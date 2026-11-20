@@ -10,6 +10,8 @@ import {
   Query,
   Put,
   UseGuards,
+  HttpCode,
+  ValidationPipe,
 } from "@nestjs/common";
 import { Role } from "@prisma/client";
 
@@ -21,6 +23,7 @@ import type { AuthUser } from "../auth/auth.types";
 import {
   AppointmentListQueryDto,
   CreateAppointmentDto,
+  RescheduleAppointmentDto,
   UpdateAppointmentDto,
 } from "./appointments.dto";
 import { AppointmentsService } from "./appointments.service";
@@ -48,10 +51,33 @@ export class AppointmentsController {
     return this.appointmentsService.requestAppointment(body, currentUser);
   }
 
+  @Post(":appointmentId/reschedule")
+  @HttpCode(200)
+  @Roles(Role.PATIENT, Role.RECEPTIONIST)
+  reschedule(
+    @Param("appointmentId", ParseIntPipe) appointmentId: number,
+    @Body(new ValidationPipe({ expectedType: RescheduleAppointmentDto, transform: true, whitelist: true })) body: RescheduleAppointmentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.appointmentsService.reschedule(appointmentId, body, user);
+  }
+
+  @Get(":appointmentId/reschedule-options")
+  @Roles(Role.PATIENT, Role.RECEPTIONIST)
+  rescheduleOptions(
+    @Param("appointmentId", ParseIntPipe) appointmentId: number,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.appointmentsService.rescheduleOptions(appointmentId, user);
+  }
+
   @Get(":appointmentId")
   @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR, Role.PATIENT)
-  getAppointmentById(@Param("appointmentId", ParseIntPipe) appointmentId: number) {
-    return this.appointmentsService.getAppointmentById(appointmentId);
+  getAppointmentById(
+    @Param("appointmentId", ParseIntPipe) appointmentId: number,
+    @CurrentUser() currentUser: AuthUser,
+  ) {
+    return this.appointmentsService.getAppointmentById(appointmentId, currentUser);
   }
 
   @Put(":appointmentId")

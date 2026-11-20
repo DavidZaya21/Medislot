@@ -1,5 +1,7 @@
 "use client";
 
+import { RescheduleAppointment, canReschedule } from "../components/RescheduleAppointment";
+
 import { specializationLabel } from "../lib/specializations";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
@@ -50,6 +52,7 @@ function AppointmentsContent() {
   const [booking, setBooking] = useState(false);
   const bookingRef = useRef(false);
   const slotRequest = useRef(0);
+  const [rescheduling, setRescheduling] = useState<Appointment | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [slots, setSlots] = useState<CalendarSlot[]>([]);
@@ -62,6 +65,7 @@ function AppointmentsContent() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const canMove = role === "PATIENT" || role === "RECEPTIONIST";
   const canReview = role === "ADMIN" || role === "RECEPTIONIST" || role === "DOCTOR";
   const canDelete = role === "ADMIN" || role === "RECEPTIONIST";
   const canCreateAppointment = role === "ADMIN" || role === "RECEPTIONIST" || role === "PATIENT";
@@ -343,6 +347,14 @@ function AppointmentsContent() {
       {error ? <Notice message={error} tone="error" /> : null}
       {message ? <Notice message={message} /> : null}
 
+      {rescheduling && auth ? <RescheduleAppointment key={rescheduling.id} appointment={rescheduling} auth={auth}
+        onClose={() => setRescheduling(null)} onSuccess={(moved) => {
+          setAppointments((items) => items.map((item) => item.id === moved.id ? moved : item));
+          setRescheduling(null);
+          setMessage(`Appointment #${moved.id} rescheduled. Version ${moved.version}; moves: ${moved.rescheduleCount ?? 0}.`);
+          loadAppointments();
+        }} /> : null}
+
       <section className="table-card">
         <div className="table-scroll">
           <table>
@@ -354,7 +366,7 @@ function AppointmentsContent() {
                 <th>Slot</th>
                 <th>Status</th>
                 <th>Reason</th>
-                {canReview || canDelete ? <th>Actions</th> : null}
+                {canReview || canDelete || canMove ? <th>Actions</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -370,9 +382,12 @@ function AppointmentsContent() {
                     <td>{appointment.doctor?.user.name ?? appointment.doctorId}</td>
                     <td>{appointment.slotStartTime ? formatDateTime(appointment.slotStartTime) : appointment.calendarId}</td>
                     <td><span className="status">{appointment.status}</span></td>
-                    <td>{appointment.reason}</td>
-                    {canReview || canDelete ? (
+                    <td>{appointment.reason}<br />Moves: {appointment.rescheduleCount ?? 0}</td>
+                    {canReview || canDelete || canMove ? (
                       <td className="row-actions">
+                        {canReschedule(appointment, role) ? <button className="button button-secondary" type="button"
+                          disabled={Boolean(rescheduling)} onClick={() => { setMessage(""); setRescheduling(appointment); }}>Reschedule</button> : null}
+                        {role === "PATIENT" && appointment.status === "CONFIRMED" && !canReschedule(appointment, role) ? <span>For changes, please contact reception.</span> : null}
                         {canCompleteAppointment ? (
                           <button className="button button-secondary" onClick={() => updateAppointment(appointment.id, "COMPLETED", appointment.reason)} type="button">
                             Complete
@@ -395,7 +410,7 @@ function AppointmentsContent() {
               })}
               {!loading && appointments.length === 0 ? (
                 <tr>
-                  <td colSpan={canReview || canDelete ? 7 : 6}>No appointments match the current filters.</td>
+                  <td colSpan={canReview || canDelete || canMove ? 7 : 6}>No appointments match the current filters.</td>
                 </tr>
               ) : null}
             </tbody>

@@ -114,6 +114,10 @@ export class UsersService {
       await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`);
       const current = await tx.user.findUnique({ where: { id: userId } });
       if (!current) throw toNotFound("User");
+      if (await tx.appointmentRescheduleHistory.findFirst({ where: { OR: [
+        { actorId: userId }, { previousDoctorId: userId }, { newDoctorId: userId },
+        { appointment: { is: { patientId: userId } } },
+      ] }, select: { id: true } })) throw toConflict("Account is referenced by preserved rescheduling history");
       const affected = { OR: [{ doctorId: userId }, { patientId: userId }] };
       if (await tx.appointment.findFirst({ where: { ...affected, status: "NEEDS_RESCHEDULING" } })) {
         throw toConflict("Account has appointments awaiting rescheduling");
@@ -148,6 +152,7 @@ export class UsersService {
         patient: true,
         doctor: true,
         calendar: true,
+        _count: { select: { rescheduleHistory: true } },
       },
       orderBy: { id: "asc" },
     });

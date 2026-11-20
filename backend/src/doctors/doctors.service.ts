@@ -67,11 +67,11 @@ export class DoctorsService {
 
   async updateDoctorById(doctorId: number, input: { specialization: Specialization }) {
     await this.findDoctorOrThrow(doctorId);
-    const user = await this.prisma.user.update({
-      where: { id: doctorId },
-      data: { specialization: input.specialization },
-    });
-    return serializeDoctor(user);
+    return this.prisma.$transaction(async (tx) => {
+      await lockDoctor(tx, doctorId);
+      const user = await tx.user.update({ where: { id: doctorId }, data: { specialization: input.specialization } });
+      return serializeDoctor(user);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
   async deleteDoctorById(doctorId: number) {
@@ -79,6 +79,9 @@ export class DoctorsService {
 
     await this.prisma.$transaction(async (tx) => {
       await lockDoctor(tx, doctorId);
+      if (await tx.appointmentRescheduleHistory.findFirst({ where: { OR: [
+        { previousDoctorId: doctorId }, { newDoctorId: doctorId }, { actorId: doctorId },
+      ] }, select: { id: true } })) throw toConflict("Doctor is referenced by preserved rescheduling history");
       if (await tx.appointment.findFirst({ where: { doctorId, status: "NEEDS_RESCHEDULING" } })) {
         throw toConflict("Doctor has appointments awaiting rescheduling");
       }

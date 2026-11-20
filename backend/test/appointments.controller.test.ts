@@ -41,16 +41,17 @@ test("POST /appointments creates an appointment", async () => {
 
 test("GET /appointments/:appointmentId returns an appointment", async () => {
   const response = { id: 1, status: AppointmentStatus.CONFIRMED };
-  const getAppointmentById = createSpy(async (appointmentId: number) => response);
+  const getAppointmentById = createSpy(async (appointmentId: number, currentUser: unknown) => response);
   const service = {
     getAppointmentById: getAppointmentById.fn,
   } as unknown as AppointmentsService;
   const controller = new AppointmentsController(service);
 
-  const result = await controller.getAppointmentById(1);
+  const currentUser = { userId: 4, role: Role.PATIENT };
+  const result = await controller.getAppointmentById(1, currentUser);
 
   assert.deepStrictEqual(result, response);
-  assert.deepStrictEqual(getAppointmentById.calls, [[1]]);
+  assert.deepStrictEqual(getAppointmentById.calls, [[1, currentUser]]);
 });
 
 test("PUT /appointments/:appointmentId updates an appointment", async () => {

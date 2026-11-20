@@ -1,6 +1,6 @@
 import { AppointmentStatus } from "@prisma/client";
 import { Transform } from "class-transformer";
-import { IsEnum, IsIn, IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from "class-validator";
+import { IsEnum, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 
 export class AppointmentListQueryDto {
   @IsOptional()
@@ -38,4 +38,21 @@ export class UpdateAppointmentDto {
   @MinLength(5)
   @MaxLength(500)
   reason!: string;
+}
+
+export class RescheduleAppointmentDto {
+  @IsInt()
+  @Min(1)
+  @Max(2147483647)
+  currentCalendarId!: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(2147483647)
+  newCalendarId!: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(2147483647)
+  expectedVersion!: number;
 }

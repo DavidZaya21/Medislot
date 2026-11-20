@@ -15,3 +15,26 @@ export async function releaseReservation(tx: Prisma.TransactionClient, calendarI
   });
   if (!remaining) await tx.calendar.update({ where: { id: calendarId }, data: { isBooked: false } });
 }
+
+// All multi-doctor operations must acquire their complete doctor set first.
+export async function lockDoctors(tx: Prisma.TransactionClient, doctorIds: number[]) {
+  for (const id of [...new Set(doctorIds)].sort((a, b) => a - b)) await lockDoctor(tx, id);
+}
+
+export async function lockPatient(tx: Prisma.TransactionClient, patientId: number) {
+  const patients = await tx.$queryRaw<{ id: number }[]>(Prisma.sql`
+    SELECT id FROM "User" WHERE id = ${patientId} AND role = 'PATIENT' FOR UPDATE`);
+  if (!patients.length) throw toNotFound("Patient");
+}
+
+export async function hasPatientOverlap(
+  tx: Prisma.TransactionClient, patientId: number, startTime: Date, endTime: Date, excludeAppointmentId?: number,
+) {
+  return Boolean(await tx.appointment.findFirst({
+    where: {
+      patientId, status: "CONFIRMED",
+      ...(excludeAppointmentId === undefined ? {} : { id: { not: excludeAppointmentId } }),
+      calendar: { is: { startTime: { lt: endTime }, endTime: { gt: startTime } } },
+    }, select: { id: true },
+  }));
+}

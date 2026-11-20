@@ -37,6 +37,7 @@ export function serializeAppointment(
     patient: User;
     doctor: User;
     calendar: Calendar;
+    _count?: { rescheduleHistory: number };
   },
 ) {
   return {
@@ -45,6 +46,8 @@ export function serializeAppointment(
     doctorId: appointment.doctorId,
     calendarId: appointment.calendarId,
     status: appointment.status,
+    version: appointment.version,
+    ...(appointment._count ? { rescheduleCount: appointment._count.rescheduleHistory } : {}),
     reason: appointment.reason,
     slotStartTime: appointment.calendar.startTime,
     slotEndTime: appointment.calendar.endTime,
