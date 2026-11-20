@@ -26,3 +26,13 @@ export function warsawInstant(date: string, time: string) {
   return matches[0];
 }
 
+
+export function warsawDate(instant: Date) {
+  const parts = Object.fromEntries(warsawClock.formatToParts(instant).map(({ type, value }) => [type, value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+// Civil date arithmetic, not elapsed 24-hour increments across DST boundaries.
+export function addClinicDays(date: string, days: number) {
+  return new Date(Date.parse(date + "T00:00:00Z") + days * day).toISOString().slice(0, 10);
+}

@@ -40,4 +40,4 @@ for ((i=0;i<60;i++)); do
  sleep 1
 done
 test "$ready" = 1
-node frontend/test/rescheduling.live.cjs
+node "${MEDISLOT_LIVE_TEST:-frontend/test/rescheduling.live.cjs}"

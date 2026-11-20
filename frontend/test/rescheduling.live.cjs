@@ -75,6 +75,7 @@ assert.equal(url.pathname, '/medislot_frontend_reschedule_test');
    const row=page.locator('tbody tr').filter({has:page.getByRole('cell',{name:String(f.app.id),exact:true})});
    await row.getByRole('button',{name:'Reschedule',exact:true}).click();
    const flow=page.getByRole('region',{name:'Reschedule appointment',exact:true});
+   if(f.scenario==='recovery') await flow.getByRole('button',{name:'Browse other available slots',exact:true}).click();
    const select=flow.getByRole('combobox',{name:'Replacement slot',exact:true});
    await flow.getByLabel('Replacement date (clinic)',{exact:true}).fill(f.date);
    await assert.doesNotReject(async()=>{await flow.getByText(/Appointment times are shown in the clinic/).waitFor()});

@@ -5,7 +5,8 @@ import type { AppointmentStatus } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { toConflict, toForbidden, toNotFound } from "../common/prisma-errors";
 import { lockDoctor, lockDoctors, lockPatient, hasPatientOverlap, releaseReservation, activeReservationStatuses } from "../common/doctor-lock";
-import { ensureMoveCutoff } from "../common/rescheduling-policy";
+import { ensureMoveCutoff, replacementEligibilityError, intervalsOverlap, type ReplacementContext } from "../common/rescheduling-policy";
+import { recommendationWindow, rankAlternatives } from "../common/rescheduling-recommendations";
 import type { RescheduleAppointmentDto } from "./appointments.dto";
 import { serializeAppointment, serializeCalendar } from "../common/serializers";
 import { PrismaService } from "../prisma/prisma.service";
@@ -105,30 +106,54 @@ export class AppointmentsService {
     const current = await this.findAppointmentOrThrow(appointmentId);
     if (user.role === Role.PATIENT && current.patientId !== user.userId) throw toForbidden();
     ensureMoveCutoff(current.status, current.calendar.startTime, user.role, Date.now());
+    const slots = await this.eligibleReplacementSlots(current, Date.now());
+    slots.sort((a, b) => Number(b.doctorId === current.doctorId) - Number(a.doctorId === current.doctorId));
+    return { appointment: serializeAppointment(current), data: slots.map(serializeCalendar) };
+  }
+
+  async alternatives(appointmentId: number, user: AuthUser) {
+    if (user.role !== Role.PATIENT && user.role !== Role.RECEPTIONIST) throw toForbidden();
+    const current = await this.findAppointmentOrThrow(appointmentId);
+    if (user.role === Role.PATIENT && current.patientId !== user.userId) throw toForbidden();
+    if (current.status !== "NEEDS_RESCHEDULING") throw toConflict("Recommendations are available only for appointments needing rescheduling");
+    const now = Date.now();
+    const bounds = recommendationWindow(current.calendar.startTime);
+    const slots = now >= bounds.endExclusive.getTime() ? [] : await this.eligibleReplacementSlots(current, now, {
+      gte: bounds.start, lt: bounds.endExclusive,
+    });
+    const groups = rankAlternatives(slots, current.doctorId, current.calendar.startTime);
+    return {
+      appointment: serializeAppointment(current),
+      window: { startDate: bounds.startDate, endDate: bounds.endDate, timeZone: bounds.timeZone },
+      keepYourDay: groups.keepYourDay.map(serializeCalendar),
+      keepYourDoctor: groups.keepYourDoctor.map(serializeCalendar),
+    };
+  }
+
+  private async eligibleReplacementSlots(
+    current: ReplacementContext & { id: number; patientId: number }, now: number,
+    range: { gte: Date; lt: Date } | undefined = undefined,
+  ) {
     const [slots, conflicts] = await Promise.all([
       this.prisma.calendar.findMany({
         where: {
           id: { not: current.calendarId }, schedulePeriodId: { not: null },
-          isBooked: false, isBlocked: false, startTime: { gt: new Date() },
+          isBooked: false, isBlocked: false, startTime: { gt: new Date(now), ...range },
           doctor: { role: Role.DOCTOR },
           OR: [
             { doctorId: current.doctorId },
             ...(current.doctor.specialization ? [{ doctor: { specialization: current.doctor.specialization } }] : []),
           ],
         },
-        include: { doctor: true }, orderBy: [{ startTime: "asc" }, { id: "asc" }],
+        include: { doctor: true }, orderBy: [{ startTime: "asc" }, { doctorId: "asc" }, { id: "asc" }],
       }),
       this.prisma.appointment.findMany({
-        where: { patientId: current.patientId, id: { not: appointmentId }, status: "CONFIRMED" },
+        where: { patientId: current.patientId, id: { not: current.id }, status: "CONFIRMED" },
         select: { calendar: { select: { startTime: true, endTime: true } } },
       }),
     ]);
-    const duration = current.calendar.endTime.getTime() - current.calendar.startTime.getTime();
-    const data = slots.filter((slot) =>
-      slot.endTime.getTime() - slot.startTime.getTime() === duration && duration > 0 &&
-      !conflicts.some(({ calendar }) => slot.startTime < calendar.endTime && slot.endTime > calendar.startTime),
-    ).sort((a, b) => Number(b.doctorId === current.doctorId) - Number(a.doctorId === current.doctorId));
-    return { appointment: serializeAppointment(current), data: data.map(serializeCalendar) };
+    return slots.filter((slot) => !replacementEligibilityError(current, slot, now) &&
+      !conflicts.some(({ calendar }) => intervalsOverlap(slot, calendar)));
   }
 
   async reschedule(appointmentId: number, input: RescheduleAppointmentDto, user: AuthUser) {
@@ -160,18 +185,9 @@ export class AppointmentsService {
       ensureMoveCutoff(current.status, current.calendar.startTime, user.role, Date.now());
       const replacement = await tx.calendar.findUnique({ where: { id: input.newCalendarId }, include: { doctor: true } });
       if (!replacement) throw toNotFound("Replacement slot");
-      if (replacement.doctorId !== target.doctorId || replacement.doctor.role !== Role.DOCTOR ||
-          replacement.schedulePeriodId === null || replacement.isBlocked || replacement.isBooked || replacement.startTime <= new Date()) {
-        throw toConflict("Replacement must be a future, published, unblocked and unbooked slot");
-      }
-      const duration = replacement.endTime.getTime() - replacement.startTime.getTime();
-      if (duration <= 0 || duration !== current.calendar.endTime.getTime() - current.calendar.startTime.getTime()) {
-        throw toConflict("Replacement must have exactly the same duration");
-      }
-      if (replacement.doctorId !== current.doctorId && (!current.doctor.specialization ||
-          !replacement.doctor.specialization || current.doctor.specialization !== replacement.doctor.specialization)) {
-        throw toConflict("Another doctor must have a known, exactly matching specialization");
-      }
+      if (replacement.doctorId !== target.doctorId) throw toConflict("Replacement must be a future, published, unblocked and unbooked slot");
+      const eligibilityError = replacementEligibilityError(current, replacement, Date.now());
+      if (eligibilityError) throw toConflict(eligibilityError);
       if (await hasPatientOverlap(tx, current.patientId, replacement.startTime, replacement.endTime, appointmentId)) {
         throw toConflict("Patient already has a confirmed appointment overlapping this slot");
       }

@@ -745,6 +745,80 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /appointments/{appointmentId}/alternatives:
+    get:
+      tags: [Appointments]
+      summary: Suggest replacements for a disrupted appointment
+      description: >
+        PATIENT (own appointment only) or RECEPTIONIST. Requires NEEDS_RESCHEDULING;
+        other statuses return 409. Anchors to the current disrupted calendar and doctor,
+        including after previous moves. Searches that Europe/Warsaw clinic date and the
+        following 14 calendar days, inclusive, using clinic midnights across DST.
+        Returns two independent groups of at most 3 eligible slots. Keep your day contains
+        other doctors with the same known specialization on the anchor clinic date, ordered
+        by absolute elapsed proximity to the current slot start. Keep your doctor contains
+        the current doctor on later clinic dates, earliest first (also with null specialization).
+        Ties use start time, doctor ID, then slot ID. Both groups require future, published,
+        unblocked, unbooked slots of exactly the current duration, with no overlap with the
+        patient's other CONFIRMED appointments; back-to-back is allowed. Empty or elapsed
+        windows return empty groups. No reservation or other writes occur. Manual browsing
+        remains available beyond the window. Check returned appointment calendarId/version
+        against the open confirmation; a mismatch requires explicit reload. The transactional
+        POST reschedule endpoint remains authoritative.
+      operationId: listAppointmentAlternatives
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AppointmentIdPath"
+      responses:
+        "200":
+          description: Current appointment snapshot, inclusive clinic-date window, and independent suggestion groups.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [appointment, window, keepYourDay, keepYourDoctor]
+                properties:
+                  appointment:
+                    $ref: "#/components/schemas/Appointment"
+                  window:
+                    type: object
+                    required: [startDate, endDate, timeZone]
+                    properties:
+                      startDate:
+                        type: string
+                        format: date
+                      endDate:
+                        type: string
+                        format: date
+                      timeZone:
+                        type: string
+                        enum: [Europe/Warsaw]
+                  keepYourDay:
+                    type: array
+                    maxItems: 3
+                    items:
+                      $ref: "#/components/schemas/Calendar"
+                  keepYourDoctor:
+                    type: array
+                    maxItems: 3
+                    items:
+                      $ref: "#/components/schemas/Calendar"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Appointment does not need rescheduling; reload the appointment before continuing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /appointments/{appointmentId}/reschedule-options:
     get:
       tags: [Appointments]

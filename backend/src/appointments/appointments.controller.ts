@@ -62,6 +62,15 @@ export class AppointmentsController {
     return this.appointmentsService.reschedule(appointmentId, body, user);
   }
 
+  @Get(":appointmentId/alternatives")
+  @Roles(Role.PATIENT, Role.RECEPTIONIST)
+  alternatives(
+    @Param("appointmentId", ParseIntPipe) appointmentId: number,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.appointmentsService.alternatives(appointmentId, user);
+  }
+
   @Get(":appointmentId/reschedule-options")
   @Roles(Role.PATIENT, Role.RECEPTIONIST)
   rescheduleOptions(
