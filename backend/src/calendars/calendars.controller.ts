@@ -17,8 +17,10 @@ import { Role } from "@prisma/client";
 import { AuthGuard } from "../auth/auth.guard";
 import { RolesGuard } from "../auth/roles.guard";
 import { Roles } from "../auth/roles.decorator";
+import { CurrentUser } from "../auth/current-user.decorator";
+import type { AuthUser } from "../auth/auth.types";
 import { CalendarsService } from "./calendars.service";
-import { BlockCalendarDto, CalendarListQueryDto, CreateCalendarDto, UpdateCalendarDto } from "./calendars.dto";
+import { BlockCalendarDto, CalendarAlternativesQueryDto, CalendarListQueryDto, CreateCalendarDto, UpdateCalendarDto } from "./calendars.dto";
 
 @Controller("calendars")
 @UseGuards(AuthGuard, RolesGuard)
@@ -43,6 +45,16 @@ export class CalendarsController {
   @Roles(Role.DOCTOR, Role.ADMIN)
   createCalendarSlot(@Body() body: CreateCalendarDto) {
     return this.calendarsService.createCalendarSlot(body);
+  }
+
+  @Get(":calendarId/alternatives")
+  @Roles(Role.PATIENT, Role.RECEPTIONIST, Role.ADMIN)
+  alternatives(
+    @Param("calendarId", ParseIntPipe) calendarId: number,
+    @Query(new ValidationPipe({ expectedType: CalendarAlternativesQueryDto, transform: true, whitelist: true })) query: CalendarAlternativesQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.calendarsService.alternatives(calendarId, query.patientId, user);
   }
 
   @Get(":calendarId")

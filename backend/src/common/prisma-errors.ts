@@ -29,6 +29,13 @@ export function toConflict(message: string) {
   });
 }
 
+export function toSlotUnavailable() {
+  return new ConflictException({
+    message: "Selected calendar slot is no longer available",
+    code: "SLOT_UNAVAILABLE",
+  });
+}
+
 export function toUnauthorized(message = "Authentication token is missing or invalid") {
   return new UnauthorizedException({
     message,

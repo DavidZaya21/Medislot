@@ -1,10 +1,13 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 import { Inject, Injectable } from "@nestjs/common";
 
-import { toBadRequest, toConflict, toNotFound } from "../common/prisma-errors";
+import { toBadRequest, toConflict, toNotFound, toForbidden } from "../common/prisma-errors";
 import { lockDoctor } from "../common/doctor-lock";
 import { warsawInstant } from "../common/clinic-time";
 import { serializeCalendar } from "../common/serializers";
+import type { AuthUser } from "../auth/auth.types";
+import { recommendationWindow, rankBookingAlternatives } from "../common/rescheduling-recommendations";
+import { replacementEligibilityError, intervalsOverlap } from "../common/rescheduling-policy";
 import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
@@ -31,6 +34,37 @@ export class CalendarsService {
     });
 
     return { data: slots.map(serializeCalendar) };
+  }
+
+  async alternatives(calendarId: number, suppliedPatientId: number | undefined, user: AuthUser) {
+    if (user.role !== Role.PATIENT && user.role !== Role.RECEPTIONIST && user.role !== Role.ADMIN) throw toForbidden();
+    const patientId = user.role === Role.PATIENT ? user.userId : suppliedPatientId;
+    if (patientId === undefined) throw toBadRequest("patientId is required when booking for a patient");
+    const patient = await this.prisma.user.findUnique({ where: { id: patientId }, select: { role: true } });
+    if (!patient || patient.role !== Role.PATIENT) throw toNotFound("Patient");
+    const original = await this.prisma.calendar.findUnique({ where: { id: calendarId }, include: { doctor: true } });
+    if (!original) throw toNotFound("Calendar slot");
+    const bounds = recommendationWindow(original.startTime);
+    const now = Date.now();
+    const context = { calendarId: original.id, doctorId: original.doctorId, calendar: original, doctor: original.doctor };
+    const [slots, conflicts] = now >= bounds.endExclusive.getTime() ? [[], []] : await Promise.all([
+      this.prisma.calendar.findMany({
+        where: { id: { not: calendarId }, doctorId: original.doctorId, doctor: { role: Role.DOCTOR },
+          schedulePeriodId: { not: null }, isBooked: false, isBlocked: false,
+          startTime: { gt: new Date(now), gte: bounds.start, lt: bounds.endExclusive } },
+        include: { doctor: true }, orderBy: [{ startTime: "asc" }, { id: "asc" }],
+      }),
+      this.prisma.appointment.findMany({ where: { patientId, status: "CONFIRMED" },
+        select: { calendar: { select: { startTime: true, endTime: true } } } }),
+    ]);
+    const eligible = slots.filter((slot) => !replacementEligibilityError(context, slot, now) &&
+      !conflicts.some(({ calendar }) => intervalsOverlap(slot, calendar)));
+    const groups = rankBookingAlternatives(eligible, original.doctorId, original.startTime);
+    return {
+      requestedSlot: serializeCalendar(original), patientId,
+      window: { startDate: bounds.startDate, endDate: bounds.endDate, timeZone: bounds.timeZone },
+      sameDay: groups.sameDay.map(serializeCalendar), laterDates: groups.laterDates.map(serializeCalendar),
+    };
   }
 
   async block(input: { doctorId: number; startTime: string; endTime: string }) {

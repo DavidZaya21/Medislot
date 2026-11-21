@@ -3,7 +3,7 @@ import { Prisma, Role } from "@prisma/client";
 import type { AppointmentStatus } from "@prisma/client";
 
 import type { AuthUser } from "../auth/auth.types";
-import { toConflict, toForbidden, toNotFound } from "../common/prisma-errors";
+import { toConflict, toForbidden, toNotFound, toSlotUnavailable } from "../common/prisma-errors";
 import { lockDoctor, lockDoctors, lockPatient, hasPatientOverlap, releaseReservation, activeReservationStatuses } from "../common/doctor-lock";
 import { ensureMoveCutoff, replacementEligibilityError, intervalsOverlap, type ReplacementContext } from "../common/rescheduling-policy";
 import { recommendationWindow, rankAlternatives } from "../common/rescheduling-recommendations";
@@ -51,7 +51,7 @@ export class AppointmentsService {
     }
 
     if (calendar.isBooked || calendar.isBlocked) {
-      throw toConflict("Selected calendar slot is no longer available");
+      throw toSlotUnavailable();
     }
 
     if (calendar.startTime <= new Date()) {
@@ -63,7 +63,7 @@ export class AppointmentsService {
       await lockPatient(tx, patientId);
       const refreshedSlot = await tx.calendar.findUnique({ where: { id: input.calendarId } });
       if (!refreshedSlot || refreshedSlot.doctorId !== input.doctorId || refreshedSlot.isBooked || refreshedSlot.isBlocked) {
-        throw toConflict("Selected calendar slot is no longer available");
+        throw toSlotUnavailable();
       }
 
       if (refreshedSlot.startTime <= new Date()) {
@@ -79,7 +79,7 @@ export class AppointmentsService {
       });
 
       if (claimedSlot.count !== 1) {
-        throw toConflict("Selected calendar slot is no longer available");
+        throw toSlotUnavailable();
       }
 
       return tx.appointment.create({

@@ -40,3 +40,12 @@ test("repeated Warsaw autumn hour ranks actual instants, without conflating equa
   ], 1, new Date("2030-10-27T00:30:00Z"));
   assert.deepEqual(result.keepYourDay.map(s => s.id), [2, 1]);
 });
+
+test("initial-booking ranking keeps the same doctor in both independently capped groups", async () => {
+  const { rankBookingAlternatives } = await import("../src/common/rescheduling-recommendations");
+  const result = rankBookingAlternatives([
+    slot(9,1,"2030-01-07T10:15:00Z"),slot(8,1,"2030-01-07T09:45:00Z"),slot(7,1,"2030-01-07T09:45:00Z"),slot(6,1,"2030-01-07T11:00:00Z"),
+    slot(10,2,"2030-01-07T10:00:00Z"),slot(14,1,"2030-01-09T09:00:00Z"),slot(12,1,"2030-01-08T09:00:00Z"),slot(11,1,"2030-01-08T09:00:00Z"),slot(15,1,"2030-01-10T09:00:00Z"),
+  ],1,new Date("2030-01-07T10:00:00Z"));
+  assert.deepEqual(result.sameDay.map(s=>s.id),[7,8,9]);assert.deepEqual(result.laterDates.map(s=>s.id),[11,12,14]);
+});

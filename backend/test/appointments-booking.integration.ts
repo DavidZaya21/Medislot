@@ -5,6 +5,7 @@ import test from "node:test";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import bcrypt from "bcrypt";
+import type { Calendar } from "@prisma/client";
 
 import { AppModule } from "../src/app.module";
 import { AppointmentsService } from "../src/appointments/appointments.service";
@@ -133,7 +134,7 @@ test("POST /appointments allows only one concurrent booking", async (t) => {
     const winner = responses.findIndex(({ status }) => status === 201);
     assert.equal(responses[winner].body.calendarId, slot.id);
     assert.deepEqual(responses[1 - winner].body, {
-      code: "CONFLICT",
+      code: "SLOT_UNAVAILABLE",
       message: "Selected calendar slot is no longer available",
     });
     assert.deepEqual(appointments, [{
@@ -142,6 +143,32 @@ test("POST /appointments allows only one concurrent booking", async (t) => {
       status: "CONFIRMED",
     }]);
     assert.equal(savedSlot.isBooked, true);
+    const publisher = await prisma.user.create({ data: { name: "Publisher", email: "publisher@example.test", password: hash, role: "ADMIN" } });
+    const period = await prisma.schedulePeriod.create({ data: { doctorId: doctor.id, publishedById: publisher.id,
+      startDate: new Date(), endDate: new Date(Date.now() + 86_400_000 * 14), workingWeekdays: [1,2,3,4,5,6,7],
+      dailyStartTime: "00:00", dailyEndTime: "23:59", slotDurationMinutes: 30, excludedDates: [], removedSlotIds: [] } });
+    const replacements: Calendar[] = [];
+    for (const hours of [2,3]) replacements.push(await prisma.calendar.create({ data: { doctorId: doctor.id,
+      schedulePeriodId: period.id, startTime: new Date(startTime.getTime() + hours * 3_600_000), endTime: new Date(startTime.getTime() + hours * 3_600_000 + 1_800_000) } }));
+    const loser = 1 - winner;
+    const suggestions = await fetch(`${baseUrl}/calendars/${slot.id}/alternatives`, { headers: { Authorization: `Bearer ${tokens[loser]}` } });
+    assert.equal(suggestions.status, 200);
+    const groups = await suggestions.json();
+    assert.ok([...groups.sameDay, ...groups.laterDates].some((s: { id: number }) => s.id === replacements[0].id));
+    assert.equal(await prisma.appointment.count({ where: { patientId: patients[loser].id } }), 0);
+    assert.equal(await prisma.appointmentRescheduleHistory.count(), 0);
+    const booking = (i: number, calendarId: number) => post("/appointments", { patientId: patients[i].id,
+      doctorId: doctor.id, calendarId, reason: "Preserved initial visit reason" }, tokens[i]);
+    assert.equal((await booking(winner, replacements[0].id)).status, 201);
+    const takenAgain = await booking(loser, replacements[0].id);
+    assert.equal(takenAgain.status, 409); assert.equal(takenAgain.body.code, "SLOT_UNAVAILABLE");
+    assert.equal(await prisma.appointment.count({ where: { patientId: patients[loser].id } }), 0);
+    const newBooking = await booking(loser, replacements[1].id);
+    assert.equal(newBooking.status, 201); assert.equal(newBooking.body.version, 1);
+    assert.notEqual(newBooking.body.id, responses[winner].body.id);
+    assert.equal(newBooking.body.reason, "Preserved initial visit reason");
+    assert.equal(await prisma.appointmentRescheduleHistory.count(), 0);
+    t.diagnostic("Loser received suggestions with no appointment; second taken alternative returned SLOT_UNAVAILABLE; final alternative created a NEW booking (201/version 1), with no rescheduling history");
   } finally {
     clearTimeout(timer);
     release();

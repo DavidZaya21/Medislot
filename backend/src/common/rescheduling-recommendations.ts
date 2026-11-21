@@ -23,3 +23,16 @@ export function rankAlternatives<T extends TimedSlot>(slots: T[], doctorId: numb
       .sort(tie).slice(0, 3),
   };
 }
+
+// Initial-booking recovery uses the same civil-date window, but never another doctor.
+export function rankBookingAlternatives<T extends TimedSlot>(slots: T[], doctorId: number, startTime: Date) {
+  const window = recommendationWindow(startTime);
+  const tie = (a: T, b: T) => a.startTime.getTime() - b.startTime.getTime() || a.id - b.id;
+  const own = slots.filter((slot) => slot.doctorId === doctorId);
+  return {
+    sameDay: own.filter((slot) => slot.startTime >= window.start && slot.startTime < window.nextDay)
+      .sort((a, b) => Math.abs(a.startTime.getTime() - startTime.getTime()) - Math.abs(b.startTime.getTime() - startTime.getTime()) || tie(a, b)).slice(0, 3),
+    laterDates: own.filter((slot) => slot.startTime >= window.nextDay && slot.startTime < window.endExclusive)
+      .sort(tie).slice(0, 3),
+  };
+}

@@ -624,6 +624,85 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /calendars/{calendarId}/alternatives:
+    get:
+      tags: [Calendars]
+      summary: Suggest another time for a failed initial booking
+      description: >
+        PATIENT, RECEPTIONIST or ADMIN only. Patients always use their authenticated identity,
+        ignoring supplied patientId. Staff must supply an existing PATIENT ID. Derives doctor,
+        duration and requested start from the referenced slot; never reads or returns its booking
+        or patient details. Same doctor only, even with null specialization. Searches the requested
+        Europe/Warsaw clinic date and the following 14 calendar days inclusive, across DST.
+        Two independent groups of at most 3: sameDay by absolute proximity to requested start,
+        laterDates earliest first. Ties use start time then slot ID. Requires future, published,
+        unbooked, unblocked slots of matching duration, excluding the source and the patient's
+        CONFIRMED overlaps (back-to-back allowed). Expired windows return empty groups.
+        Retrieval creates no holds, appointments or history. Selecting an alternative must be
+        explicitly confirmed using POST /appointments to create a NEW booking, never reschedule.
+      operationId: listInitialBookingAlternatives
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: calendarId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: patientId
+          in: query
+          required: false
+          description: Required for ADMIN/RECEPTIONIST; ignored for PATIENT identity.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2147483647
+      responses:
+        "200":
+          description: Derived requested slot, effective patient ID, inclusive clinic-date window and suggestion groups. No other patient data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [requestedSlot, patientId, window, sameDay, laterDates]
+                properties:
+                  requestedSlot:
+                    $ref: "#/components/schemas/Calendar"
+                  patientId:
+                    type: integer
+                  window:
+                    type: object
+                    required: [startDate, endDate, timeZone]
+                    properties:
+                      startDate:
+                        type: string
+                        format: date
+                      endDate:
+                        type: string
+                        format: date
+                      timeZone:
+                        type: string
+                        enum: [Europe/Warsaw]
+                  sameDay:
+                    type: array
+                    maxItems: 3
+                    items:
+                      $ref: "#/components/schemas/Calendar"
+                  laterDates:
+                    type: array
+                    maxItems: 3
+                    items:
+                      $ref: "#/components/schemas/Calendar"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /calendars/{calendarId}:
     get:
       tags: [Calendars]
@@ -721,7 +800,12 @@ paths:
     post:
       tags: [Appointments]
       summary: Create a new appointment from an available calendar slot
-      description: Online and staff-created bookings are confirmed immediately when the selected calendar slot is still available.
+      description: >
+        Online and staff-created bookings are confirmed immediately. Atomic initial booking. HTTP 409 with code SLOT_UNAVAILABLE means the selected slot
+        was booked/blocked or lost its atomic claim; no appointment was created. Only this code
+        should trigger GET /calendars/{calendarId}/alternatives. Patient overlap and other business
+        conflicts retain CONFLICT; validation and ambiguous network failures must not trigger
+        suggestions. Confirm an alternative by submitting a new POST /appointments, not reschedule.
       operationId: requestAppointment
       security:
         - bearerAuth: []
@@ -732,7 +816,7 @@ paths:
             schema:
               $ref: "#/components/schemas/AppointmentCreateRequest"
       responses:
-        "200":
+        "201":
           description: Appointment created successfully
           content:
             application/json:
@@ -742,8 +826,16 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: SLOT_UNAVAILABLE for a booked/blocked slot or lost claim; CONFLICT for patient overlap and other business conflicts. No appointment created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /appointments/{appointmentId}/alternatives:
     get:

@@ -6,7 +6,7 @@ import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 
 import { CreateAppointmentDto } from "../src/appointments/appointments.dto";
-import { CreateCalendarDto } from "../src/calendars/calendars.dto";
+import { CalendarAlternativesQueryDto, CreateCalendarDto } from "../src/calendars/calendars.dto";
 import { PatientRegistrationDto } from "../src/users/users.dto";
 
 async function validateDto<T extends object>(dtoClass: new () => T, input: object) {
@@ -43,4 +43,13 @@ test("appointment creation rejects too-short reason", async () => {
   });
 
   assert.ok(errors.some((error) => error.property === "reason"));
+});
+
+test("booking alternatives preserve an omitted patientId through repeated validation transforms", async () => {
+  for (const input of [{}, { patientId: undefined }]) {
+    const first = plainToInstance(CalendarAlternativesQueryDto, input);
+    const second = plainToInstance(CalendarAlternativesQueryDto, first);
+    assert.equal(second.patientId, undefined);
+    assert.deepEqual(await validate(second), []);
+  }
 });

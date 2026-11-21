@@ -1,5 +1,5 @@
 import { Transform } from "class-transformer";
-import { IsBoolean, IsEmpty, IsDateString, IsInt, IsOptional, Matches, Min } from "class-validator";
+import { IsBoolean, IsEmpty, IsDateString, IsInt, IsOptional, Matches, Max, Min } from "class-validator";
 
 export class CalendarListQueryDto {
   @IsOptional()
@@ -71,4 +71,13 @@ export class BlockCalendarDto {
   @IsDateString({ strict: true })
   @Matches(/T.*(?:Z|[+-]\d{2}:\d{2})$/)
   endTime!: string;
+}
+
+export class CalendarAlternativesQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => value === undefined ? undefined : Number(value))
+  @IsInt()
+  @Min(1)
+  @Max(2147483647)
+  patientId?: number;
 }

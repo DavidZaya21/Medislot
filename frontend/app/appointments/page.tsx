@@ -1,5 +1,6 @@
 "use client";
 
+import { BookingAlternatives, isSlotUnavailable, type BookingRequest } from "../components/BookingAlternatives";
 import { RescheduleAppointment, canReschedule } from "../components/RescheduleAppointment";
 
 import { specializationLabel } from "../lib/specializations";
@@ -50,6 +51,16 @@ function AppointmentsContent() {
     patientId: number; doctorId: number; calendarId: number; reason: string; slot: CalendarSlot;
   } | null>(null);
   const [booking, setBooking] = useState(false);
+  const [failedBooking, setFailedBooking] = useState<{ request: BookingRequest; key: number } | null>(null);
+  const bookingContext = useRef(0);
+  const bookingForm = useRef<HTMLFormElement>(null);
+  const [slotRefresh, setSlotRefresh] = useState(0);
+
+  function clearBookingRecovery() {
+    bookingContext.current++;
+    setFailedBooking(null);
+    setConfirmation(null);
+  }
   const bookingRef = useRef(false);
   const slotRequest = useRef(0);
   const [rescheduling, setRescheduling] = useState<Appointment | null>(null);
@@ -88,6 +99,7 @@ function AppointmentsContent() {
 
   function loadAvailableSlots(doctorId: string) {
     const request = ++slotRequest.current;
+    setSlotRefresh((value) => value + 1);
     if (!auth || !doctorId) {
       setSlots([]);
       return;
@@ -127,10 +139,13 @@ function AppointmentsContent() {
       .catch(() => setDoctors([]));
   }, [auth, role]);
 
+  useEffect(() => { clearBookingRecovery(); }, [auth?.userId, auth?.role, auth?.token]);
+
   async function createAppointment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!auth) return;
+    if (!auth || bookingRef.current) return;
     const formElement = event.currentTarget;
+    clearBookingRecovery();
     const form = new FormData(formElement);
     setMessage("");
     setError("");
@@ -150,10 +165,11 @@ function AppointmentsContent() {
   }
 
   async function bookAppointment(
-    request: { patientId: number; doctorId: number; calendarId: number; reason: string },
+    request: BookingRequest,
     formElement?: HTMLFormElement,
   ) {
     if (!auth || bookingRef.current) return;
+    const context = bookingContext.current;
     bookingRef.current = true;
     setBooking(true);
     setError("");
@@ -161,6 +177,8 @@ function AppointmentsContent() {
       const booked = await apiRequest<Appointment>("/appointments", {
         method: "POST", token: auth.token, body: request,
       });
+      if (context !== bookingContext.current) return;
+      setFailedBooking(null);
       setMessage(booked.slotStartTime
         ? "Appointment confirmed: " + clinicDateTime(booked.slotStartTime) + (booked.slotEndTime ? " – " + clinicDateTime(booked.slotEndTime) : "")
         : "Appointment created.");
@@ -174,7 +192,15 @@ function AppointmentsContent() {
       setSelectedDoctorId("");
       loadAppointments();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not create appointment");
+      if (context !== bookingContext.current) return;
+      setConfirmation(null);
+      if (isSlotUnavailable(caught)) {
+        setError("");
+        setFailedBooking({ request: { ...request }, key: ++bookingContext.current });
+      } else {
+        setFailedBooking(null);
+        setError(caught instanceof Error ? caught.message : "Could not create appointment");
+      }
     } finally {
       bookingRef.current = false;
       setBooking(false);
@@ -243,7 +269,7 @@ function AppointmentsContent() {
       </section>
 
       {canCreateAppointment ? (
-        <form className="form-card compact" onSubmit={createAppointment} onChange={() => setConfirmation(null)}>
+        <form ref={bookingForm} className="form-card compact" onSubmit={createAppointment} onChange={clearBookingRecovery}>
           <fieldset disabled={booking}>
           <h2>{role === "PATIENT" ? "Book appointment" : "Create appointment"}</h2>
           {role === "PATIENT" && showClinicNotice ? <Notice message={CLINIC_TIME_NOTICE} /> : null}
@@ -309,7 +335,7 @@ function AppointmentsContent() {
             </label>
             <label>
               Slot
-              <select name="calendarId" key={selectedDoctorId + slotDate} required>
+              <select name="calendarId" key={selectedDoctorId + slotDate + ":" + slotRefresh} required>
                 <option value="">Select available slot</option>
                 {[...slotGroups].map(([date, group]) => <optgroup key={date} label={date}>
                   {group.map((slot) => <option key={slot.id} value={slot.id}>
@@ -330,10 +356,20 @@ function AppointmentsContent() {
         </form>
       ) : null}
 
+      {failedBooking && auth ? <BookingAlternatives key={failedBooking.key} request={failedBooking.request} auth={auth} pending={booking}
+        onSelect={(slot) => setConfirmation({ ...failedBooking.request, doctorId: slot.doctorId, calendarId: slot.id, slot })}
+        onClose={clearBookingRecovery} onBrowse={() => {
+          clearBookingRecovery();
+          setSlotDate("");
+          loadAvailableSlots(selectedDoctorId);
+          bookingForm.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }} /> : null}
+
       {confirmation ? <section className="form-card" aria-label="Booking confirmation">
         <h2>Confirm booking</h2>
         <p>Doctor: {doctors.find(({ id }) => id === confirmation.doctorId)?.user.name}</p>
         <p>{clinicDateTime(confirmation.slot.startTime)} – {clinicDateTime(confirmation.slot.endTime)}</p>
+        <p>Visit reason: {confirmation.reason}</p>
         {showClinicNotice ? <Notice message={CLINIC_TIME_NOTICE} /> : null}
         <div className="row-actions">
           <button className="button button-primary" type="button" disabled={booking}
