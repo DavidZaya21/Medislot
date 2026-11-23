@@ -20,13 +20,16 @@ export class EmailWorker {
       select: { id: true, notificationId: true }, orderBy: { id: "asc" }, take: 100 });
     for (const job of expired) await this.db.$transaction(async tx => {
       await tx.$queryRaw(Prisma.sql`SELECT id FROM "Notification" WHERE id = ${job.notificationId} FOR UPDATE`);
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "EmailJob" WHERE id = ${job.id} FOR UPDATE`);
+      const freshNow = this.clock();
       await tx.$executeRaw(Prisma.sql`
         UPDATE "EmailJob" AS j SET
           status = CASE WHEN n."resolvedAt" IS NOT NULL OR n."recipientId" IS NULL OR n."appointmentId" IS NULL THEN 'SKIPPED'::"EmailJobStatus"
             WHEN j."attemptCount" >= ${TOTAL_ATTEMPTS} THEN 'FAILED'::"EmailJobStatus" ELSE 'PENDING'::"EmailJobStatus" END,
           "nextAttemptAt" = j."lockedUntil" + CASE WHEN j."attemptCount" = 1 THEN INTERVAL '1 minute' ELSE INTERVAL '5 minutes' END,
-          "claimToken" = NULL, "lockedUntil" = NULL, "sendingAt" = NULL, "lastError" = 'LEASE_EXPIRED', "updatedAt" = ${now}
-        FROM "Notification" n WHERE n.id = j."notificationId" AND j.id = ${job.id} AND j.status = 'PROCESSING' AND j."lockedUntil" <= ${now}`);
+          "failedAt" = CASE WHEN n."resolvedAt" IS NULL AND n."recipientId" IS NOT NULL AND n."appointmentId" IS NOT NULL AND j."attemptCount" >= ${TOTAL_ATTEMPTS} THEN (${freshNow.toISOString()}::timestamptz AT TIME ZONE 'UTC') ELSE NULL END,
+          "claimToken" = NULL, "lockedUntil" = NULL, "sendingAt" = NULL, "lastError" = 'LEASE_EXPIRED', "updatedAt" = ${freshNow}
+        FROM "Notification" n WHERE n.id = j."notificationId" AND j.id = ${job.id} AND j.status = 'PROCESSING' AND j."lockedUntil" <= ${freshNow}`);
     });
   }
 
@@ -80,7 +83,7 @@ export class EmailWorker {
         : { status: skipped ? "SKIPPED" as const : outcome.permanent || job.attemptCount >= TOTAL_ATTEMPTS ? "FAILED" as const : "PENDING" as const,
           lastError: outcome.failure, nextAttemptAt: new Date(now.getTime() + retryDelay(job.attemptCount)) };
       return tx.emailJob.updateMany({ where: { id: job.id, status: "PROCESSING", claimToken: job.claimToken, lockedUntil: { gt: now } },
-        data: { ...data, claimToken: null, lockedUntil: null } });
+        data: { ...data, failedAt: data.status === "FAILED" ? now : null, claimToken: null, lockedUntil: null } });
     });
   }
   renew(job: Claim) {

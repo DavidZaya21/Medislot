@@ -68,9 +68,10 @@ test("alternatives HTTP: eligibility, ranking, Warsaw windows, permissions, anch
   await db.calendar.update({ where: { id: closest.id }, data: { isBlocked: true } });
   for (let i = 0; i < 2; i++) assert.deepEqual((await alternatives(f.appointment.id, rec)).body.keepYourDay.map((s: { id: number }) => s.id), [earlyB1.id, earlyB2.id, earlyC.id]);
   const outsider = await user(Role.PATIENT);
-  for (const actor of [outsider, a, admin, manager]) {
+  for (const actor of [outsider, a, admin]) {
     const denied = await alternatives(f.appointment.id, actor); assert.equal(denied.status, 403); assert.deepEqual(Object.keys(denied.body).sort(), ["code", "message"]);
   }
+  assert.equal((await alternatives(f.appointment.id, manager)).status, 200);
   assert.equal((await alternatives(f.appointment.id)).status, 401);
   assert.equal((await request('/appointments/not-a-number/alternatives', rec)).status, 400);
   assert.equal((await alternatives(2147483647, rec)).status, 404);

@@ -10,6 +10,7 @@ import {
   Query,
   Put,
   UseGuards,
+  ValidationPipe,
 } from "@nestjs/common";
 import { Role } from "@prisma/client";
 
@@ -31,7 +32,7 @@ export class UsersController {
   constructor(@Inject(UsersService) private readonly usersService: UsersService) {}
 
   @Post()
-  registerPatient(@Body() body: PatientRegistrationDto) {
+  registerPatient(@Body(new ValidationPipe({ expectedType: PatientRegistrationDto, transform: true, whitelist: true })) body: PatientRegistrationDto) {
     return this.usersService.registerPatient(body);
   }
 
@@ -39,7 +40,7 @@ export class UsersController {
   @UseGuards(AuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.RECEPTIONIST)
   listUsers(
-    @Query() query: UserListQueryDto,
+    @Query(new ValidationPipe({expectedType:UserListQueryDto,transform:true,whitelist:true})) query: UserListQueryDto,
     @CurrentUser() currentUser: AuthUser,
   ) {
     return this.usersService.listUsers(query, currentUser);
@@ -60,7 +61,7 @@ export class UsersController {
   @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.PATIENT, Role.DOCTOR)
   updateUserById(
     @Param("userId", ParseIntPipe) userId: number,
-    @Body() body: UserUpdateDto,
+    @Body(new ValidationPipe({ expectedType: UserUpdateDto, transform: true, whitelist: true })) body: UserUpdateDto,
     @CurrentUser() currentUser: AuthUser,
   ) {
     return this.usersService.updateUserById(userId, body, currentUser);

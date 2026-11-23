@@ -1,3 +1,4 @@
+import { normalizePatientPhone } from "../common/patient-phone";
 import { Role } from "@prisma/client";
 import { Transform } from "class-transformer";
 import {
@@ -13,6 +14,10 @@ import {
 } from "class-validator";
 
 export class PatientRegistrationDto {
+  @IsOptional()
+  @Transform(({ value }) => value === undefined ? undefined : normalizePatientPhone(value))
+  @IsString()
+  phone?: string | null;
   @IsString()
   @MinLength(2)
   @MaxLength(100)
@@ -28,6 +33,10 @@ export class PatientRegistrationDto {
 }
 
 export class UserUpdateDto {
+  @IsOptional()
+  @Transform(({ value }) => value === undefined ? undefined : normalizePatientPhone(value))
+  @IsString()
+  phone?: string | null;
   @IsString()
   @MinLength(2)
   @MaxLength(100)

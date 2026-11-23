@@ -53,7 +53,7 @@ export class AppointmentsController {
 
   @Post(":appointmentId/reschedule")
   @HttpCode(200)
-  @Roles(Role.PATIENT, Role.RECEPTIONIST)
+  @Roles(Role.PATIENT, Role.RECEPTIONIST, Role.MANAGER)
   reschedule(
     @Param("appointmentId", ParseIntPipe) appointmentId: number,
     @Body(new ValidationPipe({ expectedType: RescheduleAppointmentDto, transform: true, whitelist: true })) body: RescheduleAppointmentDto,
@@ -63,7 +63,7 @@ export class AppointmentsController {
   }
 
   @Get(":appointmentId/alternatives")
-  @Roles(Role.PATIENT, Role.RECEPTIONIST)
+  @Roles(Role.PATIENT, Role.RECEPTIONIST, Role.MANAGER)
   alternatives(
     @Param("appointmentId", ParseIntPipe) appointmentId: number,
     @CurrentUser() user: AuthUser,
@@ -72,7 +72,7 @@ export class AppointmentsController {
   }
 
   @Get(":appointmentId/reschedule-options")
-  @Roles(Role.PATIENT, Role.RECEPTIONIST)
+  @Roles(Role.PATIENT, Role.RECEPTIONIST, Role.MANAGER)
   rescheduleOptions(
     @Param("appointmentId", ParseIntPipe) appointmentId: number,
     @CurrentUser() user: AuthUser,
@@ -81,7 +81,7 @@ export class AppointmentsController {
   }
 
   @Get(":appointmentId")
-  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR, Role.PATIENT)
+  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR, Role.PATIENT, Role.MANAGER)
   getAppointmentById(
     @Param("appointmentId", ParseIntPipe) appointmentId: number,
     @CurrentUser() currentUser: AuthUser,
@@ -90,12 +90,13 @@ export class AppointmentsController {
   }
 
   @Put(":appointmentId")
-  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR)
+  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR, Role.MANAGER)
   reviewAppointment(
     @Param("appointmentId", ParseIntPipe) appointmentId: number,
-    @Body() body: UpdateAppointmentDto,
+    @Body(new ValidationPipe({expectedType:UpdateAppointmentDto,transform:true,whitelist:true})) body: UpdateAppointmentDto,
+    @CurrentUser() user?: AuthUser,
   ) {
-    return this.appointmentsService.reviewAppointment(appointmentId, body);
+    return user ? this.appointmentsService.reviewAppointment(appointmentId, body, user) : this.appointmentsService.reviewAppointment(appointmentId, body);
   }
 
   @Delete(":appointmentId")

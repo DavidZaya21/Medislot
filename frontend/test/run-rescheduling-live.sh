@@ -30,7 +30,7 @@ done
 binding="$(docker port "$container" 5432/tcp)"
 export DATABASE_URL="postgresql://booking_test:booking_test@${binding}/medislot_frontend_reschedule_test"
 ./node_modules/.bin/prisma migrate deploy
-NODE_PATH="$PWD/node_modules" BACKEND_PORT=4450 JWT_SECRET=reschedule-ui-test node "$compiled/main.js" > /tmp/medislot-reschedule-ui-api.log 2>&1 &
+NODE_PATH="$PWD/node_modules" MEDISLOT_COMPILED_API="$compiled" BACKEND_PORT=4450 JWT_SECRET=reschedule-ui-test node "${MEDISLOT_LIVE_API_ENTRY:-$compiled/main.js}" > /tmp/medislot-reschedule-ui-api.log 2>&1 &
 backend_pid=$!
 NEXT_PUBLIC_API_BASE_URL=http://localhost:4450 ./node_modules/.bin/next dev "$web" --port 3350 > /tmp/medislot-reschedule-ui-web.log 2>&1 &
 frontend_pid=$!

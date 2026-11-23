@@ -1,3 +1,4 @@
+import { FollowUpsModule } from "./follow-ups/follow-ups.module";
 import { NotificationsModule } from "./notifications/notifications.module";
 import { Module } from "@nestjs/common";
 
@@ -18,6 +19,7 @@ import { UsersModule } from "./users/users.module";
   imports: [
     PrismaModule,
     NotificationsModule,
+    FollowUpsModule,
     HealthModule,
     SessionsModule,
     UsersModule,

@@ -28,6 +28,7 @@ export default function RegisterPage() {
           name: String(form.get("name")),
           email: String(form.get("email")),
           password: String(form.get("password")),
+          phone: String(form.get("phone") ?? "").trim() || null,
         },
       });
       setMessage("Patient account created. You can login now.");
@@ -56,6 +57,10 @@ export default function RegisterPage() {
             Email
             <input autoComplete="email" name="email" placeholder="you@example.com" required type="email" />
           </label>
+          <label>Phone number (optional)
+            <input name="phone" type="tel" autoComplete="tel" maxLength={40} placeholder="+48 500 100 200" />
+          </label>
+          <p className="form-help">A phone number helps reception contact you if your appointment is disrupted. Include the country code.</p>
           <label>
             Password
             <input

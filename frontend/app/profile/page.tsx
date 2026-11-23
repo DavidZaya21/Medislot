@@ -40,6 +40,7 @@ function ProfileContent() {
         body: {
           name: String(form.get("name")),
           email: String(form.get("email")),
+          ...(user?.role === "PATIENT" ? { phone: String(form.get("phone") ?? "").trim() || null } : {}),
         },
       });
       setUser(updated);
@@ -54,7 +55,7 @@ function ProfileContent() {
       <PageHeader eyebrow="Profile" title="My account" />
       {error ? <Notice message={error} tone="error" /> : null}
       {message ? <Notice message={message} /> : null}
-      <form className="form-card narrow" onSubmit={updateProfile}>
+      <form key={user?.id ?? "loading"} className="form-card narrow" onSubmit={updateProfile}>
         <label>
           Name
           <input defaultValue={user?.name ?? ""} maxLength={100} minLength={2} name="name" required type="text" />
@@ -63,6 +64,10 @@ function ProfileContent() {
           Email
           <input defaultValue={user?.email ?? ""} name="email" required type="email" />
         </label>
+        {user?.role === "PATIENT" ? <>
+          <label>Phone number (optional)<input defaultValue={user.phone ?? ""} name="phone" type="tel" autoComplete="tel" maxLength={40} placeholder="+48 500 100 200" /></label>
+          <p className="form-help">Reception can use this number if your appointment is disrupted. Include the country code.</p>
+        </> : null}
         <label>
           Role
           <input disabled value={user?.role ?? ""} />

@@ -15,10 +15,12 @@ model User {
   email          String   @unique
   password       String
   role           Role
+  phone          String?
   specialization Specialization?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  contactAttempts ContactAttempt[] @relation("ContactActor")
   notifications Notification[]
 
   patientAppointments Appointment[] @relation("PatientAppointments")
@@ -156,7 +158,11 @@ model Notification {
   createdAt DateTime @default(now())
   readAt DateTime?
   resolvedAt DateTime?
+  followUpDeadlineAt DateTime?
+  legacyFollowUpEscalatedAt DateTime?
+  contactAttempts ContactAttempt[]
   emailJob EmailJob?
+  @@index([followUpDeadlineAt, id])
   @@unique([appointmentRef, disruptionVersion])
   @@index([recipientId, createdAt, id])
 }
@@ -181,9 +187,36 @@ model EmailJob {
   sendingAt DateTime?
   lastError String?
   providerMessageId String?
+  failedAt DateTime?
   sentAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([status, nextAttemptAt, id])
   @@index([status, lockedUntil])
+}
+
+
+enum ContactOutcome {
+  REACHED_PATIENT
+  NO_ANSWER
+  BUSY
+  VOICEMAIL_LEFT
+  WRONG_NUMBER
+}
+
+model ContactAttempt {
+  id Int @id @default(autoincrement())
+  notificationId Int
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Restrict)
+  actorId Int?
+  actor User? @relation("ContactActor", fields: [actorId], references: [id], onDelete: SetNull)
+  actorRef Int
+  appointmentVersion Int
+  currentCalendarId Int
+  outcome ContactOutcome
+  note String? @db.VarChar(500)
+  idempotencyKey String @db.Uuid
+  createdAt DateTime @default(now())
+  @@unique([notificationId, idempotencyKey])
+  @@index([notificationId, createdAt, id])
 }

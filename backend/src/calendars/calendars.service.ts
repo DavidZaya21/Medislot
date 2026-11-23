@@ -2,6 +2,7 @@ import { Prisma, Role } from "@prisma/client";
 import { Inject, Injectable } from "@nestjs/common";
 
 import { toBadRequest, toConflict, toNotFound, toForbidden } from "../common/prisma-errors";
+import { followUpDeadline } from "../follow-ups/follow-up-policy";
 import { lockDoctor } from "../common/doctor-lock";
 import { addClinicDays, warsawInstant } from "../common/clinic-time";
 import { serializeCalendar } from "../common/serializers";
@@ -79,6 +80,7 @@ export class CalendarsService {
     this.ensureTimeOrder(startTime, endTime);
     return this.prisma.$transaction(async (tx) => {
       await lockDoctor(tx, input.doctorId);
+      const [{ recordedAt }] = await tx.$queryRaw<{ recordedAt: Date }[]>(Prisma.sql`SELECT clock_timestamp() AS "recordedAt"`);
       const where = { doctorId: input.doctorId, schedulePeriodId: { not: null },
         startTime: { lt: endTime }, endTime: { gt: startTime } };
       const blocked = await tx.calendar.updateMany({ where: { ...where, isBlocked: false }, data: { isBlocked: true } });
@@ -90,6 +92,7 @@ export class CalendarsService {
       if (affected.length) {
         const notices = await tx.notification.createManyAndReturn({ data: affected.sort((a, b) => a.id - b.id).map(appointment => ({
           recipientId: appointment.patientId, appointmentId: appointment.id, appointmentRef: appointment.id,
+          createdAt: recordedAt, followUpDeadlineAt: followUpDeadline(appointment.calendar.startTime, recordedAt),
           disruptionVersion: appointment.version, calendarRef: appointment.calendarId, doctorName: appointment.doctor.name,
           slotStartTime: appointment.calendar.startTime, slotEndTime: appointment.calendar.endTime,
         })), select: { id: true } });

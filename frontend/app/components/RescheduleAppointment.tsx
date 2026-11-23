@@ -17,18 +17,20 @@ type Alternatives = {
 };
 
 export function canReschedule(appointment: Appointment, role: Role | null, now = Date.now()) {
-  if (role !== "PATIENT" && role !== "RECEPTIONIST") return false;
+  if (role !== "PATIENT" && role !== "RECEPTIONIST" && role !== "MANAGER") return false;
   if (appointment.status === "NEEDS_RESCHEDULING") return true;
+  if (role === "MANAGER") return false;
   if (appointment.status !== "CONFIRMED" || !appointment.slotStartTime) return false;
   const remaining = Date.parse(appointment.slotStartTime) - now;
   return role === "PATIENT" ? remaining >= 24 * 60 * 60 * 1000 : remaining > 0;
 }
 
-export function RescheduleAppointment({ appointment, auth, onClose, onSuccess }: {
+export function RescheduleAppointment({ appointment, auth, onClose, onSuccess, onPendingChange }: {
   appointment: Appointment;
   auth: AuthState;
   onClose: () => void;
   onSuccess: (appointment: Appointment) => void;
+  onPendingChange?: (pending: boolean) => void;
 }) {
   // This snapshot only changes after an explicit reload, never when availability refreshes.
   const [original, setOriginal] = useState(appointment);
@@ -125,7 +127,7 @@ export function RescheduleAppointment({ appointment, auth, onClose, onSuccess }:
 
   async function confirm() {
     if (!confirmation || inFlight.current || reloadRequired || loading) return;
-    inFlight.current = true; setPending(true); setError(""); setInfo("");
+    inFlight.current = true; setPending(true); onPendingChange?.(true); setError(""); setInfo("");
     try {
       const moved = await apiRequest<Appointment>(`/appointments/${original.id}/reschedule`, {
         method: "POST", token: auth.token,
@@ -142,7 +144,7 @@ export function RescheduleAppointment({ appointment, auth, onClose, onSuccess }:
       } else {
         handleFailure(caught);
       }
-    } finally { inFlight.current = false; setPending(false); }
+    } finally { inFlight.current = false; setPending(false); onPendingChange?.(false); }
   }
 
   const orderedDoctors = [...doctorChoices].sort(([a], [b]) => Number(b === original.doctorId) - Number(a === original.doctorId));

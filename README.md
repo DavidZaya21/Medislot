@@ -226,3 +226,9 @@ PostgreSQL/Mailpit setup, explicit worker configuration, retry/lease policy, SMT
 delivery limitations, approved reference detachment and unfinished account-closure work.
 No real-provider transport is enabled in this milestone. Do not apply its migration to
 Supabase until separately authorized.
+
+## Reception follow-up
+
+See [reception follow-up](docs/reception-follow-up.md) for case deadlines, role scope,
+phone privacy, manual contact records, migration preservation and disposable tests.
+Migration `20261123000000_reception_follow_ups` is pending separate Supabase deployment authorization.

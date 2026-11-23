@@ -1,10 +1,12 @@
 import type { Appointment, Calendar, User } from "@prisma/client";
 
-type UserWithoutPassword = Omit<User, "password">;
-
-export function serializeUser(user: User): UserWithoutPassword {
-  const { password: _password, ...rest } = user;
-  return rest;
+// Deliberate allowlist: private phone is never included in generic/nested users.
+export function serializeUser(user: User) {
+  return { id: user.id, name: user.name, email: user.email, role: user.role,
+    specialization: user.specialization, createdAt: user.createdAt, updatedAt: user.updatedAt };
+}
+export function serializeOwnUser(user: User) {
+  return { ...serializeUser(user), ...(user.role === "PATIENT" ? { phone: user.phone ?? null } : {}) };
 }
 
 export function serializeDoctor(user: User) {

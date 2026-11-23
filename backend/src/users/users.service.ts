@@ -5,8 +5,9 @@ import type { AppointmentStatus, User } from "@prisma/client";
 
 import type { AuthUser } from "../auth/auth.types";
 import { mapPrismaError, toConflict, toForbidden, toNotFound } from "../common/prisma-errors";
+import { normalizePatientPhone } from "../common/patient-phone";
 import { releaseReservation } from "../common/doctor-lock";
-import { serializeAppointment, serializeUser } from "../common/serializers";
+import { serializeAppointment, serializeUser, serializeOwnUser } from "../common/serializers";
 import { detachAppointmentNotices, detachRecipientNotices } from "../notifications/disruption";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -14,7 +15,7 @@ import { PrismaService } from "../prisma/prisma.service";
 export class UsersService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async registerPatient(input: { name: string; email: string; password: string }) {
+  async registerPatient(input: { name: string; email: string; password: string; phone?: string | null }) {
     try {
       const user = await this.prisma.user.create({
         data: {
@@ -22,10 +23,11 @@ export class UsersService {
           email: input.email,
           password: await bcrypt.hash(input.password, 10),
           role: "PATIENT",
+          phone: input.phone === undefined ? null : normalizePatientPhone(input.phone),
         },
       });
 
-      return serializeUser(user);
+      return serializeOwnUser(user);
     } catch (error) {
       mapPrismaError(error, {
         uniqueConstraintMessage: "Email is already registered",
@@ -39,6 +41,7 @@ export class UsersService {
     page?: number;
     pageSize?: number;
   } = {}, currentUser: AuthUser) {
+    if (query.role === Role.MANAGER && currentUser.role !== Role.ADMIN) throw toForbidden("Only admins can list managers");
     const page = Number(query.page ?? 1);
     const pageSize = Number(query.pageSize ?? 10);
     const roleFilter = currentUser.role === "ADMIN" ? query.role : Role.PATIENT;
@@ -79,15 +82,18 @@ export class UsersService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw toNotFound("User");
     this.ensureUserReadAccess(user, currentUser);
-    return serializeUser(user);
+    return currentUser.userId === userId ? serializeOwnUser(user) : serializeUser(user);
   }
 
   async updateUserById(
     userId: number,
-    input: { name: string; email: string },
+    input: { name: string; email: string; phone?: string | null },
     currentUser: AuthUser,
   ) {
     await this.ensureUserUpdateAccess(userId, currentUser);
+    if (input.phone !== undefined && (currentUser.userId !== userId || currentUser.role !== Role.PATIENT)) {
+      throw toForbidden("Phone numbers can only be edited in your own patient profile");
+    }
 
     try {
       const user = await this.prisma.user.update({
@@ -95,9 +101,10 @@ export class UsersService {
         data: {
           name: input.name,
           email: input.email,
+          ...(input.phone === undefined ? {} : { phone: normalizePatientPhone(input.phone) }),
         },
       });
-      return serializeUser(user);
+      return currentUser.userId === userId ? serializeOwnUser(user) : serializeUser(user);
     } catch (error) {
       if (isRecordNotFound(error)) throw toNotFound("User");
       mapPrismaError(error);

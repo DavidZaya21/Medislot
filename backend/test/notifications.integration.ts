@@ -9,6 +9,7 @@ import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { AppModule } from "../src/app.module";
 import { PrismaService } from "../src/prisma/prisma.service";
+import { FollowUpsService } from "../src/follow-ups/follow-ups.service";
 import { EmailWorker } from "../src/email/worker";
 import { EmailFailure, LEASE_MS, type EmailMessage, type EmailTransport } from "../src/email/policy";
 import { MailpitTransport } from "../src/email/mailpit-transport";
@@ -76,6 +77,7 @@ test("durable disruption notifications, leases/retries, Mailpit capture and appr
  });
  // Worker tests use a controllable clock rather than waiting six real minutes.
  let now=new Date();const clock=()=>new Date(now);let sent:EmailMessage[]=[];
+ app.get(FollowUpsService).clock=clock;
  const ok:EmailTransport={async send(message){sent.push(message);return{messageId:message.messageId}}};
  const worker=(transport=ok)=>new EmailWorker(db,transport,"http://localhost:3350",clock);
  async function queued(){const g=await fixture();assert.equal((await block(g)).status,201);return{...g,notice:await noticeFor(g.appointment.id)}}
@@ -85,7 +87,7 @@ test("durable disruption notifications, leases/retries, Mailpit capture and appr
  let w=worker(temporary);assert.equal(await w.runOnce(),true);let job=await db.emailJob.findUniqueOrThrow({where:{notificationId:g.notice.id}});assert.equal(job.attemptCount,1);assert.equal(job.status,"PENDING");assert.equal(+job.nextAttemptAt-+now,60000);assert.equal(await w.runOnce(),false);
  await request("PATCH",`/notifications/${g.notice.id}/read`,patient);
  await db.user.update({where:{id:patient.id},data:{email:"changed@example.test"}});now=new Date(+job.nextAttemptAt);assert.equal(await w.runOnce(),true);job=await db.emailJob.findUniqueOrThrow({where:{id:job.id}});assert.equal(job.attemptCount,2);assert.equal(+job.nextAttemptAt-+now,300000);assert.equal(sent[1].to,"changed@example.test");
- now=new Date(+job.nextAttemptAt);await w.runOnce();job=await db.emailJob.findUniqueOrThrow({where:{id:job.id}});assert.equal(job.status,"FAILED");assert.equal(job.attemptCount,3);now=new Date(+now+3600000);assert.equal(await w.runOnce(),false);assert.equal((await db.appointment.findUniqueOrThrow({where:{id:g.appointment.id}})).status,"NEEDS_RESCHEDULING");assert.equal((await db.notification.findUniqueOrThrow({where:{id:g.notice.id}})).resolvedAt,null);
+ now=new Date(+job.nextAttemptAt);await w.runOnce();job=await db.emailJob.findUniqueOrThrow({where:{id:job.id}});assert.equal(job.status,"FAILED");assert.equal(+job.failedAt!,+now);assert.ok((await request("GET","/rescheduling/followUps",rec)).body.data.some((row:{notificationId:number;reasons:string[]})=>row.notificationId===g.notice.id&&row.reasons.includes("EMAIL_FAILED")));assert.equal(job.attemptCount,3);now=new Date(+now+3600000);assert.equal(await w.runOnce(),false);assert.equal((await db.appointment.findUniqueOrThrow({where:{id:g.appointment.id}})).status,"NEEDS_RESCHEDULING");assert.equal((await db.notification.findUniqueOrThrow({where:{id:g.notice.id}})).resolvedAt,null);
  g=await queued();await isolate(g);await worker({async send(){throw new EmailFailure("PERMANENT_RECIPIENT")}}).runOnce();job=await db.emailJob.findUniqueOrThrow({where:{notificationId:g.notice.id}});assert.equal(job.status,"FAILED");assert.equal(job.attemptCount,1);
  // One active transport call despite concurrent workers; resolution during the external call is harmless.
  g=await queued();await isolate(g);let release!:()=>void,entered!:()=>void;const gate=new Promise<void>(r=>release=r),hit=new Promise<void>(r=>entered=r);let calls=0;

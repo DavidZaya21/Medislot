@@ -9,6 +9,7 @@ import { ensureMoveCutoff, replacementEligibilityError, intervalsOverlap, type R
 import { recommendationWindow, rankAlternatives } from "../common/rescheduling-recommendations";
 import type { RescheduleAppointmentDto } from "./appointments.dto";
 import { serializeAppointment, serializeCalendar } from "../common/serializers";
+import { assertCurrentCase, type CaseIdentity } from "../follow-ups/case-guard";
 import { resolveDisruption, detachAppointmentNotices } from "../notifications/disruption";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -103,9 +104,10 @@ export class AppointmentsService {
 
   // Browsing is advisory: the move transaction rechecks every condition before writing.
   async rescheduleOptions(appointmentId: number, user: AuthUser) {
-    if (user.role !== Role.PATIENT && user.role !== Role.RECEPTIONIST) throw toForbidden();
+    if (user.role !== Role.PATIENT && user.role !== Role.RECEPTIONIST && user.role !== Role.MANAGER) throw toForbidden();
     const current = await this.findAppointmentOrThrow(appointmentId);
     if (user.role === Role.PATIENT && current.patientId !== user.userId) throw toForbidden();
+    if (user.role === Role.MANAGER && current.status !== "NEEDS_RESCHEDULING") throw toForbidden();
     ensureMoveCutoff(current.status, current.calendar.startTime, user.role, Date.now());
     const slots = await this.eligibleReplacementSlots(current, Date.now());
     slots.sort((a, b) => Number(b.doctorId === current.doctorId) - Number(a.doctorId === current.doctorId));
@@ -113,7 +115,7 @@ export class AppointmentsService {
   }
 
   async alternatives(appointmentId: number, user: AuthUser) {
-    if (user.role !== Role.PATIENT && user.role !== Role.RECEPTIONIST) throw toForbidden();
+    if (user.role !== Role.PATIENT && user.role !== Role.RECEPTIONIST && user.role !== Role.MANAGER) throw toForbidden();
     const current = await this.findAppointmentOrThrow(appointmentId);
     if (user.role === Role.PATIENT && current.patientId !== user.userId) throw toForbidden();
     if (current.status !== "NEEDS_RESCHEDULING") throw toConflict("Recommendations are available only for appointments needing rescheduling");
@@ -158,7 +160,7 @@ export class AppointmentsService {
   }
 
   async reschedule(appointmentId: number, input: RescheduleAppointmentDto, user: AuthUser) {
-    if (user.role !== Role.PATIENT && user.role !== Role.RECEPTIONIST) throw toForbidden();
+    if (user.role !== Role.PATIENT && user.role !== Role.RECEPTIONIST && user.role !== Role.MANAGER) throw toForbidden();
     // Discovery only. Every mutable decision is repeated after the complete lock set.
     const discovered = await this.prisma.appointment.findUnique({ where: { id: appointmentId } });
     if (!discovered) throw toNotFound("Appointment");
@@ -176,7 +178,8 @@ export class AppointmentsService {
       if (!current) throw toNotFound("Appointment");
       const actor = await tx.user.findUnique({ where: { id: user.userId }, select: { role: true } });
       if (!actor || actor.role !== user.role ||
-          (actor.role !== Role.PATIENT && actor.role !== Role.RECEPTIONIST) ||
+          (actor.role !== Role.PATIENT && actor.role !== Role.RECEPTIONIST && actor.role !== Role.MANAGER) ||
+          (actor.role === Role.MANAGER && current.status !== "NEEDS_RESCHEDULING") ||
           (actor.role === Role.PATIENT && current.patientId !== user.userId)) throw toForbidden();
       if (current.patientId !== discovered.patientId || current.doctorId !== discovered.doctorId ||
           current.calendarId !== input.currentCalendarId || current.version !== input.expectedVersion) {
@@ -223,13 +226,14 @@ export class AppointmentsService {
     const allowed = currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTIONIST ||
       (currentUser.role === Role.PATIENT && appointment.patientId === currentUser.userId) ||
       (currentUser.role === Role.DOCTOR && appointment.doctorId === currentUser.userId);
-    if (!allowed) throw toForbidden("You are not allowed to access this appointment");
+    if (!allowed && !(currentUser.role === Role.MANAGER && appointment.status === "NEEDS_RESCHEDULING")) throw toForbidden("You are not allowed to access this appointment");
     return serializeAppointment(appointment);
   }
 
   async reviewAppointment(
     appointmentId: number,
-    input: { status: AppointmentStatus; reason: string },
+    input: { status: AppointmentStatus; reason: string } & Partial<CaseIdentity>,
+    user?: AuthUser,
   ) {
     const current = await this.prisma.appointment.findUnique({
       where: { id: appointmentId },
@@ -237,6 +241,11 @@ export class AppointmentsService {
     });
     if (!current) throw toNotFound("Appointment");
 
+    const hasCase = [input.notificationId, input.disruptionVersion, input.currentCalendarId, input.expectedVersion].some(value => value !== undefined);
+    if (hasCase && (input.status !== "CANCELLED" || !input.notificationId || !input.disruptionVersion || !input.currentCalendarId || !input.expectedVersion)) {
+      throw toConflict("Provide the displayed disruption, calendar and version to cancel. Reload the case");
+    }
+    if (user?.role === Role.MANAGER && (!hasCase || input.status !== "CANCELLED")) throw toForbidden();
     if (input.status === "NEEDS_RESCHEDULING") throw toConflict("Rescheduling status is assigned only by blocking");
     if (current.status !== "CONFIRMED" && !(current.status === "NEEDS_RESCHEDULING" && input.status === "CANCELLED")) {
       throw toConflict("Only confirmed appointments can be updated");
@@ -262,6 +271,11 @@ export class AppointmentsService {
       if (input.status === "COMPLETED" && refreshed.calendar.endTime > new Date()) {
         throw toConflict("Cannot complete a future appointment");
       }
+      if (user) {
+        const actor = await tx.user.findUnique({where:{id:user.userId},select:{role:true}});
+        if (!actor || actor.role !== user.role) throw toForbidden();
+      }
+      if (hasCase) await assertCurrentCase(tx, refreshed, input as CaseIdentity);
       const appointment = await tx.appointment.update({
         where: { id: appointmentId },
         data: {

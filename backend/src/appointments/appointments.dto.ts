@@ -31,6 +31,10 @@ export class CreateAppointmentDto {
 }
 
 export class UpdateAppointmentDto {
+  @IsOptional() @IsInt() @Min(1) @Max(2147483647) notificationId?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(2147483647) disruptionVersion?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(2147483647) currentCalendarId?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(2147483647) expectedVersion?: number;
   @IsIn(["CONFIRMED", "CANCELLED", "COMPLETED", "NO_SHOW"])
   status!: AppointmentStatus;
 
