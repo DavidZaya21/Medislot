@@ -611,3 +611,66 @@ td.row-actions {
     width: 100%;
   }
 }
+
+.filter-card.patient-booking-filters {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+
+.appointment-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  margin: 16px 0;
+  padding: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.appointment-tab {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.appointment-tab[aria-selected="true"] {
+  background: var(--accent-dark);
+  color: white;
+  border-color: var(--accent-dark);
+}
+
+.appointment-tab:focus-visible,
+.table-card[role="tabpanel"]:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .filter-card.patient-booking-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.inbox-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.inbox-toolbar .appointment-tabs {
+  margin: 0;
+  min-width: 0;
+}
+
+#inbox-panel:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}

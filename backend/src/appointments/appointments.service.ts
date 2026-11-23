@@ -9,6 +9,7 @@ import { ensureMoveCutoff, replacementEligibilityError, intervalsOverlap, type R
 import { recommendationWindow, rankAlternatives } from "../common/rescheduling-recommendations";
 import type { RescheduleAppointmentDto } from "./appointments.dto";
 import { serializeAppointment, serializeCalendar } from "../common/serializers";
+import { resolveDisruption, detachAppointmentNotices } from "../notifications/disruption";
 import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
@@ -201,6 +202,7 @@ export class AppointmentsService {
         data: { doctorId: replacement.doctorId, calendarId: replacement.id, status: "CONFIRMED", version: { increment: 1 } },
         include: { patient: true, doctor: true, calendar: true },
       });
+      await resolveDisruption(tx, appointmentId);
       await releaseReservation(tx, current.calendarId);
       const historyEntry = await tx.appointmentRescheduleHistory.create({ data: {
         appointmentId, appointmentVersion: updated.version,
@@ -275,6 +277,7 @@ export class AppointmentsService {
       });
 
       if (shouldFreeSlot) {
+        await resolveDisruption(tx, appointmentId);
         await releaseReservation(tx, appointment.calendarId);
         const calendar = await tx.calendar.findUniqueOrThrow({ where: { id: appointment.calendarId } });
         appointment.calendar.isBooked = calendar.isBooked;
@@ -306,6 +309,7 @@ export class AppointmentsService {
       if (current.status === "NEEDS_RESCHEDULING") {
         throw toConflict("Appointments awaiting rescheduling cannot be deleted");
       }
+      await detachAppointmentNotices(tx, { id: appointmentId });
       await tx.appointment.delete({ where: { id: appointmentId } });
       if (activeReservationStatuses.some((status) => status === current.status)) {
         await releaseReservation(tx, current.calendarId);

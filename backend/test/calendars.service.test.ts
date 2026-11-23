@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ConflictException } from "@nestjs/common";
 
+import { Role } from "@prisma/client";
 import { CalendarsService } from "../src/calendars/calendars.service";
 
 test("calendar creation rejects past slots", async () => {
@@ -47,7 +48,7 @@ test("calendar date filters use Warsaw days in winter, summer and DST transition
     const service = new CalendarsService({
       calendar: { findMany: async (query: unknown) => { received = query; return []; } },
     } as never);
-    await service.listCalendarSlots({ date });
+    await service.listCalendarSlots({ date }, { userId: 1, role: Role.ADMIN });
     assert.deepEqual(received, {
       where: { startTime: { gte: new Date(start), lt: new Date(end) } },
       include: { doctor: true }, orderBy: { startTime: "asc" },

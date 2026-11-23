@@ -43,8 +43,8 @@ const roleCopy = {
     title: "Find care and manage your appointments.",
     cards: [
       ["Doctors", "Find the right doctor by specialization.", "/doctors"],
-      ["Calendars", "Pick an available doctor slot.", "/calendars"],
-      ["Appointments", "Book and review your appointments.", "/appointments"],
+      ["Book appointment", "Choose an available slot and confirm your visit.", "/calendars"],
+      ["My appointments", "Review and manage your appointments.", "/appointments"],
     ],
   },
 };

@@ -2,7 +2,10 @@
 
 import { specializationLabel } from "../lib/specializations";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, Suspense, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { PatientSlotBooking } from "../components/AppointmentBooking";
 
 import { AppShell, Notice, PageHeader, RequireAuth } from "../components/AppShell";
 import { apiRequest, buildQuery } from "../lib/api";
@@ -10,6 +13,8 @@ import type { CalendarSlot, Doctor } from "../lib/types";
 import { clinicDateTime, CLINIC_TIME_NOTICE } from "../lib/clinicTime";
 import { useClinicTimeNotice } from "../lib/useClinicTimeNotice";
 import { useAuth } from "../lib/useAuth";
+
+type Filters = { doctorId: string; date: string; isBooked: string };
 
 type CalendarResponse = {
   data: CalendarSlot[];
@@ -23,7 +28,7 @@ export default function CalendarsPage() {
   return (
     <AppShell>
       <RequireAuth>
-        <CalendarsContent />
+        <Suspense fallback={<p>Loading available slots…</p>}><CalendarsContent /></Suspense>
       </RequireAuth>
     </AppShell>
   );
@@ -31,15 +36,27 @@ export default function CalendarsPage() {
 
 function CalendarsContent() {
   const { auth, role } = useAuth();
+  const requestedDoctor = useSearchParams().get("doctorId") ?? "";
+  const initialDoctor = /^[1-9]\d*$/.test(requestedDoctor) && Number(requestedDoctor) <= 2147483647 ? requestedDoctor : "";
+  const [selectedSlot, setSelectedSlot] = useState<CalendarSlot | null>(null);
+  const [bookingPending, setBookingPending] = useState(false);
+  const [booked, setBooked] = useState(false);
   const showClinicNotice = useClinicTimeNotice();
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [slots, setSlots] = useState<CalendarSlot[]>([]);
-  const [doctorId, setDoctorId] = useState("");
+  const [doctorId, setDoctorId] = useState(initialDoctor);
   const [date, setDate] = useState("");
   const [isBooked, setIsBooked] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const [applied, setApplied] = useState<Filters>({ doctorId: "", date: "", isBooked: "" });
+  const requestRevision = useRef(0);
+  const patient = role === "PATIENT";
+  const draft = { doctorId, date, isBooked: patient ? "false" : isBooked };
+  const filtersChanged = JSON.stringify(draft) !== JSON.stringify(applied);
+  const appliedDoctor = doctors.find((doctor) => String(doctor.userId) === applied.doctorId);
 
   const canManage = role === "ADMIN" || role === "DOCTOR";
   const minimumSlotDateTime = toDateTimeLocalValue(new Date());
@@ -51,32 +68,41 @@ function CalendarsContent() {
       .catch(() => setDoctors([]));
   }, [auth]);
 
-  function loadSlots() {
+  function loadSlots(filters: Filters = applied) {
     if (!auth) return;
+    const snapshot = { ...filters, isBooked: patient ? "false" : filters.isBooked };
+    const revision = ++requestRevision.current;
+    setApplied(snapshot);
+    setSlots([]);
     setLoading(true);
     setError("");
     apiRequest<CalendarResponse>(
       `/calendars${buildQuery({
-        doctorId: doctorId ? Number(doctorId) : undefined,
-        date: date || undefined,
-        isBooked: isBooked === "" ? undefined : isBooked,
+        doctorId: snapshot.doctorId || undefined,
+        date: snapshot.date || undefined,
+        isBooked: snapshot.isBooked === "" ? undefined : snapshot.isBooked,
       })}`,
       { token: auth.token },
     )
       .then((response) => {
-        const visibleSlots =
-          isBooked === "false"
-            ? response.data.filter((slot) => !isExpiredSlot(slot))
-            : response.data;
-        setSlots(visibleSlots);
+        if (revision !== requestRevision.current) return;
+        setSlots(snapshot.isBooked === "false"
+          ? response.data.filter((slot) => !isExpiredSlot(slot)) : response.data);
       })
-      .catch((caught) => setError(caught instanceof Error ? caught.message : "Could not load slots"))
-      .finally(() => setLoading(false));
+      .catch((caught) => {
+        if (revision !== requestRevision.current) return;
+        setError(caught instanceof Error ? caught.message : "Could not load slots");
+      })
+      .finally(() => {
+        if (revision === requestRevision.current) setLoading(false);
+      });
   }
 
   useEffect(() => {
-    loadSlots();
-  }, [auth]);
+    setDoctorId(initialDoctor); setDate(""); setSelectedSlot(null);
+    loadSlots({ doctorId: initialDoctor, date: "", isBooked: patient ? "false" : "" });
+    return () => { requestRevision.current++; };
+  }, [auth, initialDoctor]);
 
   async function createSlot(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -139,12 +165,13 @@ function CalendarsContent() {
 
   return (
     <>
-      <PageHeader eyebrow="Calendars" title="Doctor availability" />
+      <PageHeader eyebrow={patient ? "Appointments" : "Calendars"} title={patient ? "Book appointment" : "Doctor availability"} />
+      {patient ? <Link href="/appointments">My appointments</Link> : null}
 
-      <section className="filter-card filter-card-fields with-action">
+      <section className={`filter-card filter-card-fields with-action${patient ? " patient-booking-filters" : ""}`}>
         <label>
           Doctor
-          <select onChange={(event) => setDoctorId(event.target.value)} value={doctorId}>
+          <select disabled={bookingPending} onChange={(event) => { setDoctorId(event.target.value); setSelectedSlot(null); }} value={doctorId}>
             <option value="">All doctors</option>
             {doctors.map((doctor) => (
               <option key={doctor.id} value={doctor.userId}>
@@ -155,17 +182,19 @@ function CalendarsContent() {
         </label>
         <label>
           Date (clinic)
-          <input onChange={(event) => setDate(event.target.value)} type="date" value={date} />
+          <input disabled={bookingPending} onChange={(event) => { setDate(event.target.value); setSelectedSlot(null); }} type="date" value={date} />
         </label>
+        {!patient ? <>
         <label>
           Status
-          <select onChange={(event) => setIsBooked(event.target.value)} value={isBooked}>
-            <option value="">All</option>
+          <select disabled={bookingPending} onChange={(event) => setIsBooked(event.target.value)} value={patient ? "false" : isBooked}>
+            {!patient ? <option value="">All</option> : null}
             <option value="false">Available</option>
-            <option value="true">Booked</option>
+            {!patient ? <option value="true">Booked</option> : null}
           </select>
         </label>
-        <button className="button button-primary" disabled={loading} onClick={loadSlots} type="button">
+        </> : null}
+        <button className="button button-primary" disabled={bookingPending || (loading && !filtersChanged)} onClick={() => { setSelectedSlot(null); loadSlots(draft); }} type="button">
           Apply
         </button>
       </section>
@@ -198,8 +227,20 @@ function CalendarsContent() {
         </form>
       ) : null}
 
-      {error ? <Notice message={error} tone="error" /> : null}
+      <p data-testid="applied-filters">
+        Applied filters: {appliedDoctor?.user.name ?? (applied.doctorId || "All doctors")} · {applied.date || "All clinic dates"}{!patient ? <> · {applied.isBooked === "false" ? "Available" : applied.isBooked === "true" ? "Booked" : "All statuses"}</> : null}
+      </p>
+      {filtersChanged ? <p>Filters changed. Apply to update results.</p> : null}
+      {loading ? <p role="status">Loading slots for the applied filters…</p> : null}
+      {error ? <Notice message={`Could not load slots for the applied filters: ${error}`} tone="error" /> : null}
       {message ? <Notice message={message} /> : null}
+
+      {patient && booked ? <Link className="button button-secondary" href="/appointments">View my appointments</Link> : null}
+      {patient && auth ? <PatientSlotBooking key={JSON.stringify(draft)} slot={selectedSlot} auth={auth}
+        setMessage={setMessage} onPending={setBookingPending} onUnavailable={() => loadSlots()}
+        onClear={() => setSelectedSlot(null)}
+        onBrowse={() => { setSelectedSlot(null); loadSlots(); }}
+        onSuccess={() => { setSelectedSlot(null); setBooked(true); loadSlots(); }} /> : null}
 
       {role === "PATIENT" && showClinicNotice ? <Notice message={CLINIC_TIME_NOTICE} /> : null}
       <section className="table-card">
@@ -211,8 +252,8 @@ function CalendarsContent() {
                 <th>Doctor</th>
                 <th>Start</th>
                 <th>End</th>
-                <th>Status</th>
-                {canManage ? <th>Actions</th> : null}
+                {!patient ? <th>Status</th> : null}
+                {canManage || patient ? <th>Actions</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -224,11 +265,14 @@ function CalendarsContent() {
                     <td>{slot.doctor?.user.name ?? slot.doctorId}</td>
                     <td>{formatDateTime(slot.startTime)}</td>
                     <td>{formatDateTime(slot.endTime)}</td>
-                    <td>
+                    {!patient ? <td>
                       <span className={getSlotStatusClass(slot, expired)}>
                         {getSlotStatusLabel(slot, expired)}
                       </span>
-                    </td>
+                    </td> : null}
+                    {patient ? <td><button className="button button-primary" type="button"
+                      disabled={bookingPending || filtersChanged || expired || slot.isBooked || slot.isBlocked}
+                      onClick={() => { setMessage(""); setSelectedSlot(slot); }}>Select slot</button></td> : null}
                     {canManage ? (
                       <td className="row-actions">
                         {!expired && !slot.isBlocked ? (
@@ -244,9 +288,9 @@ function CalendarsContent() {
                   </tr>
                 );
               })}
-              {!loading && slots.length === 0 ? (
+              {!loading && !error && slots.length === 0 ? (
                 <tr>
-                  <td colSpan={canManage ? 6 : 5}>No calendar slots match the filters.</td>
+                  <td colSpan={patient ? 5 : canManage ? 6 : 5}>No calendar slots match the filters.</td>
                 </tr>
               ) : null}
             </tbody>

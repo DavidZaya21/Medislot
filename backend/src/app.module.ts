@@ -1,3 +1,4 @@
+import { NotificationsModule } from "./notifications/notifications.module";
 import { Module } from "@nestjs/common";
 
 import { AppointmentsModule } from "./appointments/appointments.module";
@@ -16,6 +17,7 @@ import { UsersModule } from "./users/users.module";
 @Module({
   imports: [
     PrismaModule,
+    NotificationsModule,
     HealthModule,
     SessionsModule,
     UsersModule,

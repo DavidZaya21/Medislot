@@ -3,7 +3,7 @@ import { Inject, Injectable } from "@nestjs/common";
 
 import { toBadRequest, toConflict, toNotFound, toForbidden } from "../common/prisma-errors";
 import { lockDoctor } from "../common/doctor-lock";
-import { warsawInstant } from "../common/clinic-time";
+import { addClinicDays, warsawInstant } from "../common/clinic-time";
 import { serializeCalendar } from "../common/serializers";
 import type { AuthUser } from "../auth/auth.types";
 import { recommendationWindow, rankBookingAlternatives } from "../common/rescheduling-recommendations";
@@ -14,25 +14,31 @@ import { PrismaService } from "../prisma/prisma.service";
 export class CalendarsService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async listCalendarSlots(query: { doctorId?: number; date?: string; isBooked?: boolean }) {
-    const where: Record<string, unknown> = {};
-
+  async listCalendarSlots(query: { doctorId?: number; date?: string; isBooked?: boolean }, user: AuthUser) {
+    const where: Prisma.CalendarWhereInput = {};
+    const patient = user.role === Role.PATIENT;
+    const startTime: Prisma.DateTimeFilter = patient ? { gt: new Date() } : {};
     if (query.doctorId) where.doctorId = query.doctorId;
-    if (query.isBooked !== undefined) where.isBooked = query.isBooked;
-    if (query.isBooked === false) where.isBlocked = false;
-    if (query.date) {
-      const nextDate = new Date(Date.parse(query.date + "T00:00:00Z") + 86_400_000).toISOString().slice(0, 10);
-      const start = new Date(warsawInstant(query.date, "00:00"));
-      const end = new Date(warsawInstant(nextDate, "00:00"));
-      where.startTime = { gte: start, lt: end };
+    if (patient) {
+      // Patient visibility is mandatory, independent of caller-supplied status/filter flags.
+      where.isBooked = false;
+      where.isBlocked = false;
+      where.schedulePeriodId = { not: null };
+    } else {
+      if (query.isBooked !== undefined) where.isBooked = query.isBooked;
+      if (query.isBooked === false) where.isBlocked = false;
     }
-
-    const slots = await this.prisma.calendar.findMany({
-      where,
-      include: { doctor: true },
-      orderBy: { startTime: "asc" },
-    });
-
+    if (query.date) {
+      try {
+        startTime.gte = new Date(warsawInstant(query.date, "00:00"));
+        startTime.lt = new Date(warsawInstant(addClinicDays(query.date, 1), "00:00"));
+      } catch (error) {
+        if (error instanceof RangeError) throw toBadRequest("date is outside the supported clinic-date range");
+        throw error;
+      }
+    }
+    if (patient || query.date) where.startTime = startTime;
+    const slots = await this.prisma.calendar.findMany({ where, include: { doctor: true }, orderBy: { startTime: "asc" } });
     return { data: slots.map(serializeCalendar) };
   }
 
@@ -76,11 +82,20 @@ export class CalendarsService {
       const where = { doctorId: input.doctorId, schedulePeriodId: { not: null },
         startTime: { lt: endTime }, endTime: { gt: startTime } };
       const blocked = await tx.calendar.updateMany({ where: { ...where, isBlocked: false }, data: { isBlocked: true } });
-      const affected = await tx.appointment.updateMany({
+      const affected = await tx.appointment.updateManyAndReturn({
         where: { status: "CONFIRMED", calendar: { is: where } },
         data: { status: "NEEDS_RESCHEDULING", version: { increment: 1 } },
+        include: { doctor: { select: { name: true } }, calendar: { select: { startTime: true, endTime: true } } },
       });
-      return { blockedSlots: blocked.count, appointmentsNeedingRescheduling: affected.count };
+      if (affected.length) {
+        const notices = await tx.notification.createManyAndReturn({ data: affected.sort((a, b) => a.id - b.id).map(appointment => ({
+          recipientId: appointment.patientId, appointmentId: appointment.id, appointmentRef: appointment.id,
+          disruptionVersion: appointment.version, calendarRef: appointment.calendarId, doctorName: appointment.doctor.name,
+          slotStartTime: appointment.calendar.startTime, slotEndTime: appointment.calendar.endTime,
+        })), select: { id: true } });
+        await tx.emailJob.createMany({ data: notices.map(notice => ({ notificationId: notice.id })) });
+      }
+      return { blockedSlots: blocked.count, appointmentsNeedingRescheduling: affected.length };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 15_000 });
   }
 
@@ -119,7 +134,14 @@ export class CalendarsService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
-  async getCalendarSlotById(calendarId: number) {
+  async getCalendarSlotById(calendarId: number, user: AuthUser) {
+    if (user.role === Role.PATIENT) {
+      const available = await this.prisma.calendar.findFirst({ where: {
+        id: calendarId, startTime: { gt: new Date() }, schedulePeriodId: { not: null }, isBooked: false, isBlocked: false,
+      }, include: { doctor: true } });
+      if (!available) throw toNotFound("Calendar slot");
+      return serializeCalendar(available);
+    }
     const slot = await this.prisma.calendar.findUnique({
       where: { id: calendarId },
       include: { doctor: true },

@@ -19,6 +19,8 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  notifications Notification[]
+
   patientAppointments Appointment[] @relation("PatientAppointments")
   doctorAppointments  Appointment[] @relation("DoctorAppointments")
   calendarSlots       Calendar[]
@@ -59,6 +61,7 @@ model Appointment {
   doctor   User     @relation("DoctorAppointments", fields: [doctorId], references: [id])
   calendar Calendar @relation(fields: [calendarId], references: [id])
   rescheduleHistory AppointmentRescheduleHistory[]
+  notifications Notification[]
 }
 
 enum Role {
@@ -135,4 +138,52 @@ model AppointmentRescheduleHistory {
 
   @@unique([appointmentId, appointmentVersion], map: "AppointmentRescheduleHistory_appointment_version_key")
   @@index([actorId])
+}
+
+model Notification {
+  id Int @id @default(autoincrement())
+  recipientId Int?
+  recipient User? @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+  appointmentId Int?
+  appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  appointmentRef Int
+  disruptionVersion Int
+  calendarRef Int
+  type String @default("DOCTOR_UNAVAILABLE")
+  doctorName String
+  slotStartTime DateTime
+  slotEndTime DateTime
+  createdAt DateTime @default(now())
+  readAt DateTime?
+  resolvedAt DateTime?
+  emailJob EmailJob?
+  @@unique([appointmentRef, disruptionVersion])
+  @@index([recipientId, createdAt, id])
+}
+
+enum EmailJobStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+model EmailJob {
+  id Int @id @default(autoincrement())
+  notificationId Int @unique
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Restrict)
+  status EmailJobStatus @default(PENDING)
+  attemptCount Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  lockedUntil DateTime?
+  claimToken String?
+  sendingAt DateTime?
+  lastError String?
+  providerMessageId String?
+  sentAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, nextAttemptAt, id])
+  @@index([status, lockedUntil])
 }

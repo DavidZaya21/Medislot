@@ -6,6 +6,7 @@ export class CalendarListQueryDto {
   @Transform(({ value }) => (value === undefined ? undefined : Number(value)))
   @IsInt()
   @Min(1)
+  @Max(2147483647)
   doctorId?: number;
 
   @IsOptional()

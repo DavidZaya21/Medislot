@@ -7,6 +7,7 @@ import type { AuthUser } from "../auth/auth.types";
 import { mapPrismaError, toConflict, toForbidden, toNotFound } from "../common/prisma-errors";
 import { releaseReservation } from "../common/doctor-lock";
 import { serializeAppointment, serializeUser } from "../common/serializers";
+import { detachAppointmentNotices, detachRecipientNotices } from "../notifications/disruption";
 import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
@@ -122,6 +123,8 @@ export class UsersService {
       if (await tx.appointment.findFirst({ where: { ...affected, status: "NEEDS_RESCHEDULING" } })) {
         throw toConflict("Account has appointments awaiting rescheduling");
       }
+      await detachAppointmentNotices(tx, affected);
+      await detachRecipientNotices(tx, userId);
       if (current.role === "DOCTOR") {
         await tx.appointment.deleteMany({ where: { doctorId: userId } });
         await tx.calendar.deleteMany({ where: { doctorId: userId } });

@@ -1,0 +1,5 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),ts=require('typescript');
+const file=path.resolve(__dirname,'../app/lib/returnDestination.ts'),m=new Module(file,module);m.filename=file;m.paths=module.paths;m._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,file);
+const safe=m.exports.returnDestination;for(const value of['/notifications','/appointments','/appointments?reschedule=123'])assert.equal(safe(value),value);
+for(const value of[undefined,null,'','https://evil.example/','//evil.example/','/\\evil.example/','/%2f%2fevil.example','/appointments?reschedule=0','/appointments?reschedule=2147483648','/appointments?reschedule=1&next=//evil','/login','/appointments\n?reschedule=1','javascript:alert(1)'])assert.equal(safe(value),null);
+console.log('PASS: only known internal inbox/appointment destinations survive login; external, encoded, control-character and malformed links are rejected.');

@@ -1,17 +1,20 @@
 "use client";
 
-import { BookingAlternatives, isSlotUnavailable, type BookingRequest } from "../components/BookingAlternatives";
+import { AppointmentBookingFlow, useAppointmentBooking } from "../components/AppointmentBooking";
+import Link from "next/link";
+import { AppointmentViewTabs, appointmentTabId } from "../components/AppointmentViewTabs";
+import { appointmentView, type AppointmentView } from "../lib/appointmentViews";
 import { RescheduleAppointment, canReschedule } from "../components/RescheduleAppointment";
 
 import { specializationLabel } from "../lib/specializations";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { AppShell, Notice, PageHeader, RequireAuth } from "../components/AppShell";
 import { apiRequest, buildQuery } from "../lib/api";
 import type { Appointment, AppointmentStatus, CalendarSlot, Doctor, PaginationMeta, User } from "../lib/types";
-import { clinicDate, clinicDateTime, clinicTime, CLINIC_TIME_NOTICE } from "../lib/clinicTime";
-import { useClinicTimeNotice } from "../lib/useClinicTimeNotice";
+import { clinicDate, clinicDateTime, clinicTime } from "../lib/clinicTime";
 import { useAuth } from "../lib/useAuth";
 
 type AppointmentsResponse = {
@@ -37,7 +40,7 @@ export default function AppointmentsPage() {
   return (
     <AppShell>
       <RequireAuth>
-        <AppointmentsContent />
+        <Suspense fallback={<p>Loading appointments…</p>}><AppointmentsContent /></Suspense>
       </RequireAuth>
     </AppShell>
   );
@@ -45,23 +48,10 @@ export default function AppointmentsPage() {
 
 function AppointmentsContent() {
   const { auth, role } = useAuth();
-  const showClinicNotice = useClinicTimeNotice();
+  const deepLinkId = useSearchParams().get("reschedule");
   const [slotDate, setSlotDate] = useState("");
-  const [confirmation, setConfirmation] = useState<{
-    patientId: number; doctorId: number; calendarId: number; reason: string; slot: CalendarSlot;
-  } | null>(null);
-  const [booking, setBooking] = useState(false);
-  const [failedBooking, setFailedBooking] = useState<{ request: BookingRequest; key: number } | null>(null);
-  const bookingContext = useRef(0);
   const bookingForm = useRef<HTMLFormElement>(null);
   const [slotRefresh, setSlotRefresh] = useState(0);
-
-  function clearBookingRecovery() {
-    bookingContext.current++;
-    setFailedBooking(null);
-    setConfirmation(null);
-  }
-  const bookingRef = useRef(false);
   const slotRequest = useRef(0);
   const [rescheduling, setRescheduling] = useState<Appointment | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -79,7 +69,15 @@ function AppointmentsContent() {
   const canMove = role === "PATIENT" || role === "RECEPTIONIST";
   const canReview = role === "ADMIN" || role === "RECEPTIONIST" || role === "DOCTOR";
   const canDelete = role === "ADMIN" || role === "RECEPTIONIST";
-  const canCreateAppointment = role === "ADMIN" || role === "RECEPTIONIST" || role === "PATIENT";
+  const canCreateAppointment = role === "ADMIN" || role === "RECEPTIONIST";
+
+  const [view, setView] = useState<AppointmentView>("All");
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(timer); }, []);
+  const flow = useAppointmentBooking({ auth, setMessage, setError, onSuccess: () => {
+    setSlotDate(""); setSlots([]); setPatients([]); setPatientSearch(""); setSelectedPatientId(""); setSelectedDoctorId(""); loadAppointments();
+  } });
+  const { booking, bookingRef, clearBookingRecovery, bookAppointment } = flow;
 
   function loadAppointments(nextStatus = status) {
     if (!auth) return;
@@ -139,7 +137,25 @@ function AppointmentsContent() {
       .catch(() => setDoctors([]));
   }, [auth, role]);
 
-  useEffect(() => { clearBookingRecovery(); }, [auth?.userId, auth?.role, auth?.token]);
+
+  useEffect(() => {
+    if (!auth) return;
+    const value = deepLinkId;
+    setRescheduling(null);
+    if (!value) return;
+    let active = true;
+    if (!/^[1-9]\d*$/.test(value) || Number(value) > 2147483647) { setError("Invalid appointment link."); return; }
+    if (role !== "PATIENT" && role !== "RECEPTIONIST") { setError("This rescheduling link is not available for your account."); return; }
+    apiRequest<Appointment>(`/appointments/${value}`, { token: auth.token }).then((appointment) => {
+      if (!active) return;
+      if (appointment.status !== "NEEDS_RESCHEDULING") {
+        setMessage("This appointment no longer needs recovery. Current status: " + appointment.status + ".");
+        return;
+      }
+      setRescheduling(appointment);
+    }).catch(() => { if (active) setError("This appointment is unavailable or does not belong to your account."); });
+    return () => { active = false; };
+  }, [auth, role, deepLinkId]);
 
   async function createAppointment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -156,55 +172,7 @@ function AppointmentsContent() {
       calendarId: Number(form.get("calendarId")),
       reason: String(form.get("reason")),
     };
-    if (role === "PATIENT") {
-      const slot = slots.find(({ id }) => id === request.calendarId);
-      if (slot) setConfirmation({ ...request, slot });
-      return;
-    }
     await bookAppointment(request, formElement);
-  }
-
-  async function bookAppointment(
-    request: BookingRequest,
-    formElement?: HTMLFormElement,
-  ) {
-    if (!auth || bookingRef.current) return;
-    const context = bookingContext.current;
-    bookingRef.current = true;
-    setBooking(true);
-    setError("");
-    try {
-      const booked = await apiRequest<Appointment>("/appointments", {
-        method: "POST", token: auth.token, body: request,
-      });
-      if (context !== bookingContext.current) return;
-      setFailedBooking(null);
-      setMessage(booked.slotStartTime
-        ? "Appointment confirmed: " + clinicDateTime(booked.slotStartTime) + (booked.slotEndTime ? " – " + clinicDateTime(booked.slotEndTime) : "")
-        : "Appointment created.");
-      formElement?.reset();
-      setConfirmation(null);
-      setSlotDate("");
-      setSlots([]);
-      setPatients([]);
-      setPatientSearch("");
-      setSelectedPatientId("");
-      setSelectedDoctorId("");
-      loadAppointments();
-    } catch (caught) {
-      if (context !== bookingContext.current) return;
-      setConfirmation(null);
-      if (isSlotUnavailable(caught)) {
-        setError("");
-        setFailedBooking({ request: { ...request }, key: ++bookingContext.current });
-      } else {
-        setFailedBooking(null);
-        setError(caught instanceof Error ? caught.message : "Could not create appointment");
-      }
-    } finally {
-      bookingRef.current = false;
-      setBooking(false);
-    }
   }
 
   async function updateAppointment(id: number, nextStatus: AppointmentStatus, reason: string) {
@@ -248,6 +216,10 @@ function AppointmentsContent() {
     <>
       <PageHeader eyebrow="Appointments" title={role === "PATIENT" ? "My appointments" : "Appointment management"} />
 
+      {role === "PATIENT" ? <>
+        <Link className="button button-primary" href="/calendars">Book appointment</Link>
+        <AppointmentViewTabs view={view} onChange={(next) => { setView(next); setNow(Date.now()); }} />
+      </> : <>
       <section className="filter-card filter-card-single">
         <label>
           Status
@@ -268,14 +240,14 @@ function AppointmentsContent() {
         </label>
       </section>
 
+      </>}
+
       {canCreateAppointment ? (
         <form ref={bookingForm} className="form-card compact" onSubmit={createAppointment} onChange={clearBookingRecovery}>
           <fieldset disabled={booking}>
-          <h2>{role === "PATIENT" ? "Book appointment" : "Create appointment"}</h2>
-          {role === "PATIENT" && showClinicNotice ? <Notice message={CLINIC_TIME_NOTICE} /> : null}
+          <h2>Create appointment</h2>
           <div className="form-grid">
-            {role !== "PATIENT" ? (
-              <>
+            <>
                 <label>
                   Patient search
                   <input
@@ -307,8 +279,7 @@ function AppointmentsContent() {
                     ))}
                   </select>
                 </label>
-              </>
-            ) : null}
+            </>
             <label>
               Doctor
               <select
@@ -350,36 +321,16 @@ function AppointmentsContent() {
             </label>
           </div>
           <button className="button button-primary" type="submit" disabled={booking}>
-            {role === "PATIENT" ? "Review booking" : "Create appointment"}
+            Create appointment
           </button>
           </fieldset>
         </form>
       ) : null}
 
-      {failedBooking && auth ? <BookingAlternatives key={failedBooking.key} request={failedBooking.request} auth={auth} pending={booking}
-        onSelect={(slot) => setConfirmation({ ...failedBooking.request, doctorId: slot.doctorId, calendarId: slot.id, slot })}
-        onClose={clearBookingRecovery} onBrowse={() => {
-          clearBookingRecovery();
-          setSlotDate("");
-          loadAvailableSlots(selectedDoctorId);
-          bookingForm.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-        }} /> : null}
-
-      {confirmation ? <section className="form-card" aria-label="Booking confirmation">
-        <h2>Confirm booking</h2>
-        <p>Doctor: {doctors.find(({ id }) => id === confirmation.doctorId)?.user.name}</p>
-        <p>{clinicDateTime(confirmation.slot.startTime)} – {clinicDateTime(confirmation.slot.endTime)}</p>
-        <p>Visit reason: {confirmation.reason}</p>
-        {showClinicNotice ? <Notice message={CLINIC_TIME_NOTICE} /> : null}
-        <div className="row-actions">
-          <button className="button button-primary" type="button" disabled={booking}
-            onClick={() => bookAppointment({
-              patientId: confirmation.patientId, doctorId: confirmation.doctorId,
-              calendarId: confirmation.calendarId, reason: confirmation.reason,
-            })}>{booking ? "Booking…" : "Confirm booking"}</button>
-          <button className="button button-secondary" type="button" disabled={booking} onClick={() => setConfirmation(null)}>Cancel</button>
-        </div>
-      </section> : null}
+      {auth && canCreateAppointment ? <AppointmentBookingFlow flow={flow} auth={auth} onBrowse={() => {
+        setSlotDate(""); loadAvailableSlots(selectedDoctorId);
+        bookingForm.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }} /> : null}
       {error ? <Notice message={error} tone="error" /> : null}
       {message ? <Notice message={message} /> : null}
 
@@ -391,7 +342,10 @@ function AppointmentsContent() {
           loadAppointments();
         }} /> : null}
 
-      <section className="table-card">
+      <section className="table-card" role={role === "PATIENT" ? "tabpanel" : undefined}
+        id={role === "PATIENT" ? "appointment-view-panel" : undefined}
+        aria-labelledby={role === "PATIENT" ? appointmentTabId(view) : undefined}
+        tabIndex={role === "PATIENT" ? 0 : undefined}>
         <div className="table-scroll">
           <table>
             <thead>
@@ -406,7 +360,7 @@ function AppointmentsContent() {
               </tr>
             </thead>
             <tbody>
-              {appointments.map((appointment) => {
+              {appointments.filter((appointment) => role !== "PATIENT" || view === "All" || appointmentView(appointment, now) === view).map((appointment) => {
                 const canChangeStatus = canReview && appointment.status === "CONFIRMED";
                 const canCancel = canReview && (appointment.status === "CONFIRMED" || appointment.status === "NEEDS_RESCHEDULING");
                 const canCompleteAppointment = canChangeStatus && hasAppointmentEnded(appointment);
@@ -417,7 +371,7 @@ function AppointmentsContent() {
                     <td>{appointment.patient?.name ?? appointment.patientId}</td>
                     <td>{appointment.doctor?.user.name ?? appointment.doctorId}</td>
                     <td>{appointment.slotStartTime ? formatDateTime(appointment.slotStartTime) : appointment.calendarId}</td>
-                    <td><span className="status">{appointment.status}</span></td>
+                    <td><span className="status">{appointment.status}</span>{role === "PATIENT" && appointment.status === "CONFIRMED" && appointment.slotStartTime && Date.parse(appointment.slotStartTime) <= now && appointmentView(appointment, now) === "Upcoming" ? <span> · In progress</span> : null}</td>
                     <td>{appointment.reason}<br />Moves: {appointment.rescheduleCount ?? 0}</td>
                     {canReview || canDelete || canMove ? (
                       <td className="row-actions">
@@ -444,7 +398,7 @@ function AppointmentsContent() {
                   </tr>
                 );
               })}
-              {!loading && appointments.length === 0 ? (
+              {!loading && !appointments.some((appointment) => role !== "PATIENT" || view === "All" || appointmentView(appointment, now) === view) ? (
                 <tr>
                   <td colSpan={canReview || canDelete || canMove ? 7 : 6}>No appointments match the current filters.</td>
                 </tr>

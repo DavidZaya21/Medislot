@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 
+import { returnDestination } from "../lib/returnDestination";
 import { useAuth } from "../lib/useAuth";
 import type { Role } from "../lib/types";
 
@@ -14,6 +15,7 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
+  { href: "/notifications", label: "Inbox", roles: ["PATIENT"] },
   { href: "/doctor-unavailability", label: "Doctor unavailability", roles: ["ADMIN", "MANAGER"] },
   { href: "/schedule-generation", label: "Generate schedule", roles: ["ADMIN", "MANAGER"] },
   { href: "/", label: "Home", roles: ["ADMIN", "RECEPTIONIST", "DOCTOR"] },
@@ -52,7 +54,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 href={item.href}
                 key={item.href}
               >
-                {item.label}
+                {role === "PATIENT" && item.href === "/calendars" ? "Book appointment" : role === "PATIENT" && item.href === "/appointments" ? "My appointments" : item.label}
               </Link>
             ))}
           </nav>
@@ -113,7 +115,10 @@ export function RequireAuth({
   const router = useRouter();
 
   useEffect(() => {
-    if (ready && !isAuthenticated) router.replace("/login");
+    if (ready && !isAuthenticated) {
+      const destination = returnDestination(window.location.pathname + window.location.search);
+      router.replace(destination ? "/login?next=" + encodeURIComponent(destination) : "/login");
+    }
   }, [isAuthenticated, ready, router]);
 
   if (!ready) return <StatusPanel title="Loading" message="Checking your session." />;

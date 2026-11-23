@@ -512,7 +512,7 @@ paths:
     get:
       tags: [Calendars]
       summary: List calendar slots
-      description: Patients can browse free slots, while staff can filter doctor schedules by date and booking status.
+      description: Patients receive only future, published, unblocked, unbooked slots; booking-status filters cannot broaden this visibility. Staff retain calendar access and may filter by booking status. Dates use Europe/Warsaw clinic days. Valid filters with no matches return an empty data array.
       operationId: listCalendarSlots
       security:
         - bearerAuth: []
@@ -533,6 +533,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Calendar"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
     post:
@@ -578,6 +580,11 @@ paths:
         Counts describe newly blocked slots and newly flagged appointments. Legacy/manual
         slots are excluded. No persistent unavailability interval is stored: later
         publication in a previously empty part of this range is not automatically blocked.
+        Each newly transitioned appointment creates one patient notification and immediately
+        eligible durable email job in this same transaction, keyed by its new version.
+        Repeat blocking creates no duplicate notices/jobs. No SMTP call occurs in the transaction;
+        insert failure rolls back blocking. Successful recovery/cancellation resolves notices
+        and skips unsent jobs without changing read status. Failed initial bookings create none.
       operationId: blockCalendarSlots
       security:
         - bearerAuth: []
@@ -707,6 +714,7 @@ paths:
     get:
       tags: [Calendars]
       summary: Get a single calendar slot
+      description: Patients can read only future, published, unblocked, unbooked slots; other slots return 404. Own appointments remain accessible through the appointment API. Staff retain existing calendar access.
       operationId: getCalendarSlotById
       security:
         - bearerAuth: []
@@ -765,6 +773,103 @@ paths:
       responses:
         "204":
           description: Calendar slot deleted successfully
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: List the authenticated patient's disruption notices
+      description: >
+        PATIENT only. Recipient is always the authenticated user; caller-supplied recipient
+        IDs are not used. Newest first by createdAt then ID. Read and resolved are independent.
+        No recipient email, visit reason, SMTP error or email job internals are exposed.
+      operationId: listNotifications
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000000
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: unread
+          in: query
+          description: Omit for all; true selects unread, false selects read notices.
+          schema:
+            type: boolean
+        - name: needsAction
+          in: query
+          description: Omit for all resolution states; true selects unresolved disruptions regardless of read state, false selects resolved history. Combines with unread when both are supplied. Pagination totals use the same recipient and filters as the returned records.
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Own notifications, including original Warsaw appointment snapshots and resolution status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Notification"
+                  meta:
+                    type: object
+                    properties:
+                      page: { type: integer }
+                      pageSize: { type: integer }
+                      total: { type: integer }
+                      totalPages: { type: integer }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /notifications/{notificationId}/read:
+    patch:
+      tags: [Notifications]
+      summary: Mark an owned notification read, idempotently
+      description: >
+        PATIENT only. Sets readAt once; repeated requests preserve its original value.
+        Does not resolve a disruption, change an appointment/version, or cancel email retries.
+        No body is required or used. Missing and another patient's notices both return 404.
+      operationId: markNotificationRead
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Owned notice with readAt set.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Notification"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1150,7 +1255,7 @@ components:
         format: date
     CalendarBookedQuery:
       in: query
-      description: When false, only unbooked AND unblocked slots are returned.
+      description: Staff booking-status filter; false excludes blocked slots. For patients, all valid values are overridden by mandatory future, published, unblocked, unbooked visibility.
       name: isBooked
       required: false
       schema:
@@ -1353,6 +1458,29 @@ components:
         status:
           type: string
           example: ok
+
+    Notification:
+      type: object
+      required: [id, appointmentId, disruptionVersion, type, doctorName, slotStartTime, slotEndTime, createdAt, readAt, resolvedAt, href]
+      properties:
+        id: { type: integer }
+        appointmentId: { type: integer, nullable: true }
+        disruptionVersion:
+          type: integer
+          description: Version produced by the original blocking transition; not a version to confirm a later move with.
+        type:
+          type: string
+          enum: [DOCTOR_UNAVAILABLE]
+        doctorName: { type: string }
+        slotStartTime: { type: string, format: date-time }
+        slotEndTime: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        readAt: { type: string, format: date-time, nullable: true }
+        resolvedAt: { type: string, format: date-time, nullable: true }
+        href:
+          type: string
+          nullable: true
+          description: Authenticated appointment link; null after appointment detachment. Always fetch current state before opening recovery.
 
     ErrorResponse:
       type: object

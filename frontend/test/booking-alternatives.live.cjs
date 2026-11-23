@@ -20,12 +20,16 @@ assert.equal(url.hostname,'127.0.0.1');assert.equal(url.pathname,'/medislot_fron
   const original=await slot(d,date+'T10:00:00Z'),first=scenario==='empty'?null:await slot(d,date+'T10:30:00Z'),second=scenario==='empty'?null:await slot(d,date+'T11:30:00Z');
   if(scenario!=='empty')await slot(d,addDays(date,1)+'T09:00:00Z');const beyond=await slot(d,addDays(date,20)+'T09:00:00Z');
   const context=await browser.newContext({timezoneId:role==='PATIENT'?'America/New_York':'Europe/Warsaw'}),page=await context.newPage();page.setDefaultTimeout(20000);
-  await page.goto(ui+'/login');await page.getByLabel('Email',{exact:true}).fill((role==='PATIENT'?patient:rec).email);await page.getByLabel('Password',{exact:true}).fill('PreviewTest123!');await page.getByRole('button',{name:'Log in',exact:true}).click();await page.waitForURL(u=>u.pathname!='/login');await page.goto(ui+'/appointments');
-  const form=page.locator('form.form-card.compact'),reason='Preserved intended visit reason';
+  await page.goto(ui+'/login');await page.getByLabel('Email',{exact:true}).fill((role==='PATIENT'?patient:rec).email);await page.getByLabel('Password',{exact:true}).fill('PreviewTest123!');await page.getByRole('button',{name:'Log in',exact:true}).click();await page.waitForURL(u=>u.pathname!='/login');await page.goto(ui+(role==='PATIENT'?'/calendars?doctorId='+d.id:'/appointments'));
+  const form=role==='PATIENT'?page.getByRole('form',{name:'Selected appointment',exact:true}):page.locator('form.form-card.compact'),reason='Preserved intended visit reason';
   if(role==='RECEPTIONIST'){
    await form.getByLabel('Patient search',{exact:true}).fill(patient.email);await form.getByRole('combobox',{name:'Patient',exact:true}).selectOption(String(patient.id));
   }
-  await form.getByRole('combobox',{name:'Doctor',exact:true}).selectOption(String(d.id));await form.getByRole('combobox',{name:'Slot',exact:true}).selectOption(String(original.id));await form.getByLabel('Reason',{exact:true}).fill(reason);
+  const reasonLabel=role==='PATIENT'?'Visit reason':'Reason';
+  const selectPatientSlot=async id=>page.locator('tbody tr').filter({has:page.getByRole('cell',{name:String(id),exact:true})}).getByRole('button',{name:'Select slot',exact:true}).click();
+  if(role==='PATIENT')await selectPatientSlot(original.id);
+  else {await form.getByRole('combobox',{name:'Doctor',exact:true}).selectOption(String(d.id));await form.getByRole('combobox',{name:'Slot',exact:true}).selectOption(String(original.id));}
+  await form.getByLabel(reasonLabel,{exact:true}).fill(reason);
   let posts=0,reads=0;page.on('request',r=>{if(r.method()==='POST'&&r.url()===api+'/appointments')posts++;if(r.url().includes('/calendars/')&&r.url().includes('/alternatives'))reads++});
   if(scenario==='overlap'){
    const conflict=await slot(otherDoctor,date+'T10:00:00Z');assert.equal((await book(patient,otherDoctor,conflict.id)).status,201);
@@ -60,14 +64,14 @@ assert.equal(url.hostname,'127.0.0.1');assert.equal(url.pathname,'/medislot_fron
   if(late){
    await reached;
    if(scenario==='late-close')await flow.getByRole('button',{name:'Close alternatives',exact:true}).click();
-   else await form.getByLabel('Reason',{exact:true}).fill('Changed booking context reason');
+   else await form.getByLabel(reasonLabel,{exact:true}).fill('Changed booking context reason');
    release();await Promise.all(routeTasks);await page.unrouteAll({behavior:'wait'});await page.evaluate(()=>new Promise(requestAnimationFrame));
    assert.equal(await flow.count(),0);assert.equal(await count(patient.id),0);await context.close();console.log(role+' '+scenario+': delayed results did not restore obsolete suggestions');continue;
   }
   const same=flow.getByRole('region',{name:'Same clinic day',exact:true});
   if(scenario==='empty'){
    await same.getByText('No suitable alternatives.',{exact:true}).waitFor();await flow.getByRole('region',{name:'Later clinic dates',exact:true}).getByText('No suitable alternatives.',{exact:true}).waitFor();
-   await flow.getByRole('button',{name:'Browse other available slots',exact:true}).click();await form.getByRole('combobox',{name:'Slot',exact:true}).selectOption(String(beyond.id));assert.equal(await flow.count(),0);assert.equal(await count(patient.id),0);
+   await flow.getByRole('button',{name:'Browse other available slots',exact:true}).click();if(role==='PATIENT')await selectPatientSlot(beyond.id);else await form.getByRole('combobox',{name:'Slot',exact:true}).selectOption(String(beyond.id));assert.equal(await flow.count(),0);assert.equal(await count(patient.id),0);
   }else{
    const choose=()=>same.getByRole('button',{name:/^Review booking on /}).first();await choose().waitFor();
    assert.equal(await flow.getByText(/Appointment times are shown in the clinic/).count(),role==='PATIENT'?1:0);
@@ -75,8 +79,8 @@ assert.equal(url.hostname,'127.0.0.1');assert.equal(url.pathname,'/medislot_fron
    // Manual refresh is read-only and preserves the intended patient/reason.
    await flow.getByRole('button',{name:'Refresh alternatives',exact:true}).click();await choose().waitFor();assert.equal(await count(patient.id),0);
    if(scenario==='close'){await flow.getByRole('button',{name:'Close alternatives',exact:true}).click();assert.equal(await count(patient.id),0)}
-   else if(scenario==='reason-change'){await form.getByLabel('Reason',{exact:true}).fill('Changed intended reason');assert.equal(await flow.count(),0)}
-   else if(scenario==='doctor-change'){await form.getByRole('combobox',{name:'Doctor',exact:true}).selectOption(String(otherDoctor.id));assert.equal(await flow.count(),0)}
+   else if(scenario==='reason-change'){await form.getByLabel(reasonLabel,{exact:true}).fill('Changed intended reason');assert.equal(await flow.count(),0)}
+   else if(scenario==='doctor-change'){await (role==='PATIENT'?page:form).getByRole('combobox',{name:'Doctor',exact:true}).selectOption(String(otherDoctor.id));assert.equal(await flow.count(),0)}
    else if(scenario==='patient-change'){await form.getByLabel('Patient search',{exact:true}).fill(competitor.email);await form.getByRole('combobox',{name:'Patient',exact:true}).selectOption(String(competitor.id));assert.equal(await flow.count(),0)}
    else{
     await choose().click();const confirmation=page.getByRole('region',{name:'Booking confirmation',exact:true});await confirmation.getByText('Visit reason: '+reason,{exact:true}).waitFor();assert.equal(await count(patient.id),0);

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 import { Notice } from "../components/AppShell";
+import { returnDestination } from "../lib/returnDestination";
 import { useAuth } from "../lib/useAuth";
 
 export default function LoginPage() {
@@ -21,7 +22,8 @@ export default function LoginPage() {
     const form = new FormData(event.currentTarget);
     try {
       const auth = await login(String(form.get("email")), String(form.get("password")));
-      router.push(auth.role === "PATIENT" ? "/doctors" : "/");
+      const destination = returnDestination(new URLSearchParams(window.location.search).get("next"));
+      router.push(destination ?? (auth.role === "PATIENT" ? "/calendars" : "/"));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Login failed");
     } finally {

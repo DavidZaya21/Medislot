@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { FormEvent, useEffect, useState } from "react";
 
 import { AppShell, Notice, PageHeader, RequireAuth } from "../components/AppShell";
@@ -209,7 +211,7 @@ function DoctorsContent() {
                 <th>Name</th>
                 <th>Email</th>
                 <th>Specialization</th>
-                {canManage ? <th>Actions</th> : null}
+                {canManage || role === "PATIENT" ? <th>Actions</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -230,6 +232,7 @@ function DoctorsContent() {
                       specializationLabel(doctor.specialization)
                     )}
                   </td>
+                  {role === "PATIENT" ? <td><Link className="button button-primary" href={`/calendars?doctorId=${doctor.userId}`}>Book appointment</Link></td> : null}
                   {canManage ? (
                     <td>
                       {editingId === doctor.id ? (
@@ -264,7 +267,7 @@ function DoctorsContent() {
               ))}
               {!loading && doctors.length === 0 ? (
                 <tr>
-                  <td colSpan={canManage ? 5 : 4}>No doctors match the current filter.</td>
+                  <td colSpan={canManage || role === "PATIENT" ? 5 : 4}>No doctors match the current filter.</td>
                 </tr>
               ) : null}
             </tbody>

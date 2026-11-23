@@ -31,8 +31,11 @@ export class CalendarsController {
   ) {}
 
   @Get()
-  listCalendarSlots(@Query() query: CalendarListQueryDto) {
-    return this.calendarsService.listCalendarSlots(query);
+  listCalendarSlots(
+    @Query(new ValidationPipe({ expectedType: CalendarListQueryDto, transform: true, whitelist: true })) query: CalendarListQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.calendarsService.listCalendarSlots(query, user);
   }
 
   @Post("block")
@@ -58,8 +61,8 @@ export class CalendarsController {
   }
 
   @Get(":calendarId")
-  getCalendarSlotById(@Param("calendarId", ParseIntPipe) calendarId: number) {
-    return this.calendarsService.getCalendarSlotById(calendarId);
+  getCalendarSlotById(@Param("calendarId", ParseIntPipe) calendarId: number, @CurrentUser() user: AuthUser) {
+    return this.calendarsService.getCalendarSlotById(calendarId, user);
   }
 
   @Put(":calendarId")

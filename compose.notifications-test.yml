@@ -1,0 +1,20 @@
+# Disposable, synthetic-data capture only. No SMTP relay/forwarding configuration.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: medislot_notifications_local
+      POSTGRES_USER: booking_test
+      POSTGRES_PASSWORD: booking_test
+    ports:
+      - "127.0.0.1:55432:5432"
+    networks: [capture]
+  mailpit:
+    image: axllent/mailpit:v1.27.4
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    networks: [capture]
+networks:
+  capture:
+    internal: true

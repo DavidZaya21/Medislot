@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { Role } from "@prisma/client";
 import { CalendarsController } from "../src/calendars/calendars.controller";
 import { CalendarsService } from "../src/calendars/calendars.service";
 import { createSpy } from "./helpers";
@@ -12,10 +13,10 @@ test("GET /calendars lists calendar slots", async () => {
   const controller = new CalendarsController(service);
   const query = { doctorId: 5, date: "2026-05-22", isBooked: false };
 
-  const result = await controller.listCalendarSlots(query);
+  const result = await controller.listCalendarSlots(query, { userId: 1, role: Role.PATIENT });
 
   assert.deepStrictEqual(result, response);
-  assert.deepStrictEqual(listCalendarSlots.calls, [[query]]);
+  assert.deepStrictEqual(listCalendarSlots.calls, [[query, { userId: 1, role: Role.PATIENT }]]);
 });
 
 test("POST /calendars creates a slot", async () => {
@@ -45,10 +46,10 @@ test("GET /calendars/:calendarId returns a slot", async () => {
   } as unknown as CalendarsService;
   const controller = new CalendarsController(service);
 
-  const result = await controller.getCalendarSlotById(1);
+  const result = await controller.getCalendarSlotById(1, { userId: 1, role: Role.PATIENT });
 
   assert.deepStrictEqual(result, response);
-  assert.deepStrictEqual(getCalendarSlotById.calls, [[1]]);
+  assert.deepStrictEqual(getCalendarSlotById.calls, [[1, { userId: 1, role: Role.PATIENT }]]);
 });
 
 test("PUT /calendars/:calendarId updates a slot", async () => {

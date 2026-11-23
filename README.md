@@ -218,3 +218,11 @@ npm run build
 - `POST /receptionists` - create a receptionist as admin
 - `GET /calendars` - list calendar slots
 - `POST /appointments` - create an appointment
+
+## Disruption notifications and local email capture
+
+See [notification/email local setup](docs/notification-email-local.md) for the disposable
+PostgreSQL/Mailpit setup, explicit worker configuration, retry/lease policy, SMTP
+delivery limitations, approved reference detachment and unfinished account-closure work.
+No real-provider transport is enabled in this milestone. Do not apply its migration to
+Supabase until separately authorized.

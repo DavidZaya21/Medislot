@@ -15,5 +15,10 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
   assert.deepEqual((await db.query('SELECT * FROM "Calendar"')).rows,slots);
   assert.equal((await db.query('SELECT count(*)::int AS count FROM "AppointmentRescheduleHistory"')).rows[0].count,0);
   console.log('PASS: rescheduling migration preserves all original appointment/slot contents, adds version=1 and creates empty history');
+  await db.query(fs.readFileSync(path.resolve(__dirname,'../../prisma/migrations/20261121000000_disruption_notifications/migration.sql'),'utf8'));
+  assert.deepEqual((await db.query('SELECT * FROM "Appointment"')).rows,before.map(row=>({...row,version:1})));
+  assert.deepEqual((await db.query('SELECT * FROM "Calendar"')).rows,slots);
+  for(const table of ['Notification','EmailJob']) assert.equal((await db.query('SELECT count(*)::int AS count FROM "'+table+'"')).rows[0].count,0);
+  console.log('PASS: notification migration preserves existing records and fabricates no notices/jobs for pre-existing disruptions');
  }finally{await db.query('ROLLBACK');await db.query('SET search_path TO public');await db.query('DROP SCHEMA IF EXISTS rescheduling_migration_test CASCADE');await db.end()}
 })().catch(e=>{console.error(e);process.exitCode=1});
