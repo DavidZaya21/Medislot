@@ -31,16 +31,19 @@ export function getStoredAuth(): AuthState | null {
 
 export function storeAuth(auth: AuthState) {
   window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(auth));
+  window.dispatchEvent(new Event("medislot-auth-changed"));
 }
 
 export function clearStoredAuth() {
   window.localStorage.removeItem(AUTH_STORAGE_KEY);
+  window.dispatchEvent(new Event("medislot-auth-changed"));
 }
 
 export function decodeAuthToken(token: string): AuthState {
   const payload = JSON.parse(atob(token.split(".")[1] ?? ""));
   return {
     token,
+    sessionId: crypto.randomUUID(),
     role: payload.role,
     userId: Number(payload.sub),
   };

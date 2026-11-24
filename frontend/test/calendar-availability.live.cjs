@@ -22,7 +22,7 @@ const api = 'http://localhost:4450', ui = 'http://localhost:3350';
   const registration = await fetch(api+'/users', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'New patient',email:'availability@example.test',password:'PreviewTest123!'})});
   assert.equal(registration.status,201);
   const patient=(await db.query('SELECT id,role FROM "User" WHERE email=$1',['availability@example.test'])).rows[0];
-  const auth = actor => ({token:jwt.sign({sub:actor.id,role:actor.role},'reschedule-ui-test',{expiresIn:'1h'}),role:actor.role,userId:actor.id});
+  const auth = actor => ({token:jwt.sign({ authVersion: 1, sub:actor.id,role:actor.role},'reschedule-ui-test',{expiresIn:'1h'}),role:actor.role,userId:actor.id});
   async function get(path,actor=patient,base=api) {const r=await fetch(base+path,{headers:actor?{Authorization:'Bearer '+auth(actor).token}:{}});return {status:r.status,body:await r.json()};}
   const period=(await db.query('INSERT INTO "SchedulePeriod" ("doctorId","publishedById","startDate","endDate","workingWeekdays","dailyStartTime","dailyEndTime","slotDurationMinutes","excludedDates","removedSlotIds") VALUES (21,$1,\'2020-01-01\',\'2035-12-31\',ARRAY[1,2,3,4,5,6,7],\'00:00\',\'23:59\',30,ARRAY[]::text[],ARRAY[]::int[]) RETURNING id',[actors.ADMIN.id])).rows[0].id;
   async function slot(start,booked=false,blocked=false,published=true) {return (await db.query('INSERT INTO "Calendar" ("doctorId","startTime","endTime","isBooked","isBlocked","schedulePeriodId","updatedAt") VALUES (21,$1,$2,$3,$4,$5,NOW()) RETURNING id',[start,new Date(Date.parse(start)+1800000).toISOString(),booked,blocked,published?period:null])).rows[0].id;}

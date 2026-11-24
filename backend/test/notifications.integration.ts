@@ -5,6 +5,8 @@ import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { Prisma, Role, type EmailJob } from "@prisma/client";
 import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { AppModule } from "../src/app.module";
@@ -19,10 +21,10 @@ test("durable disruption notifications, leases/retries, Mailpit capture and appr
  process.env.DATABASE_URL=url.href;process.env.JWT_SECRET="notification-test";
  const app=await NestFactory.create(AppModule,{logger:false,abortOnError:false});const db=app.get(PrismaService);
  t.after(async()=>{try{await app.close()}finally{await db.$disconnect()}});app.useGlobalPipes(new ValidationPipe({transform:true,whitelist:true}));await app.listen(0,"127.0.0.1");const base=await app.getUrl();assert.equal(await db.user.count(),0);
- let sequence=0;async function user(role:Role){return db.user.create({data:{name:"Notice "+ ++sequence,email:`notice${sequence}@example.test`,password:"unused",role}})}
+ let sequence=0;async function user(role:Role){return db.user.create({data:{name:"Notice "+ ++sequence,email:`notice${sequence}@example.test`,password:await bcrypt.hash("TestPassword123!",4),role}})}
  const admin=await user(Role.ADMIN),manager=await user(Role.MANAGER),rec=await user(Role.RECEPTIONIST),doctor=await user(Role.DOCTOR),patient=await user(Role.PATIENT),other=await user(Role.PATIENT);
  const period=await db.schedulePeriod.create({data:{doctorId:doctor.id,publishedById:admin.id,startDate:new Date("2030-01-01"),endDate:new Date("2035-12-31"),workingWeekdays:[1,2,3,4,5,6,7],dailyStartTime:"00:00",dailyEndTime:"23:59",slotDurationMinutes:30,excludedDates:[],removedSlotIds:[]}});
- type Actor={id:number;role:Role};async function request(method:string,path:string,actor?:Actor,body?:object){const response=await fetch(base+path,{method,headers:{"Content-Type":"application/json",...(actor?{Authorization:"Bearer "+jwt.sign({sub:actor.id,role:actor.role},process.env.JWT_SECRET!,{expiresIn:"1h"})}:{})},body:body?JSON.stringify(body):undefined});return{status:response.status,body:await response.json().catch(()=>null)}}
+ type Actor={id:number;role:Role};async function request(method:string,path:string,actor?:Actor,body?:object){const response=await fetch(base+path,{method,headers:{"Content-Type":"application/json",...(actor?{Authorization:"Bearer "+jwt.sign({ authVersion: 1, sub:actor.id,role:actor.role},process.env.JWT_SECRET!,{expiresIn:"1h"})}:{})},body:body?JSON.stringify(body):undefined});return{status:response.status,body:await response.json().catch(()=>null)}}
  let day=0;async function fixture(owner=patient){const start=new Date(Date.parse("2030-01-07T10:00:00Z")+day++*86400000);const slot=await db.calendar.create({data:{doctorId:doctor.id,schedulePeriodId:period.id,startTime:start,endTime:new Date(+start+1800000),isBooked:true}});const appointment=await db.appointment.create({data:{doctorId:doctor.id,patientId:owner.id,calendarId:slot.id,reason:"PRIVATE VISIT REASON"}});return{slot,appointment,owner}}
  const block=(f:Awaited<ReturnType<typeof fixture>>)=>request("POST","/calendars/block",admin,{doctorId:doctor.id,startTime:f.slot.startTime.toISOString(),endTime:f.slot.endTime.toISOString()});
  const noticeFor=(id:number)=>db.notification.findFirstOrThrow({where:{appointmentRef:id},orderBy:{id:"desc"},include:{emailJob:true}});
@@ -160,7 +162,7 @@ test("durable disruption notifications, leases/retries, Mailpit capture and appr
  t.diagnostic("A fresh email-worker OS process recovered the durable expired job, used attempt 2 and completed real SMTP capture");
  // Approved deletion: preserve records, stop unsent jobs and detach, rather than preventing deletion because notices exist.
  const disposable=await user(Role.PATIENT);const deleted=await queuedFor(disposable);await isolate(deleted);await cancel(deleted);const nId=deleted.notice.id,jId=deleted.notice.emailJob!.id;
- assert.equal((await request("DELETE",`/users/${disposable.id}`,admin)).status,200);const detached=await db.notification.findUniqueOrThrow({where:{id:nId}});assert.equal(detached.recipientId,null);assert.equal(detached.appointmentId,null);assert.ok(detached.resolvedAt);assert.equal((await db.emailJob.findUniqueOrThrow({where:{id:jId}})).status,"SKIPPED");assert.equal(await db.user.findUnique({where:{id:disposable.id}}),null);
+ assert.equal((await request("DELETE",`/users/${disposable.id}`,admin)).status,409);assert.equal((await request("POST","/users/me/close",disposable,{currentPassword:"TestPassword123!",confirmed:true,requestId:randomUUID()})).status,200);const detached=await db.notification.findUniqueOrThrow({where:{id:nId}});assert.equal(detached.recipientId,null);assert.equal(detached.appointmentId,null);assert.ok(detached.resolvedAt);assert.equal((await db.emailJob.findUniqueOrThrow({where:{id:jId}})).status,"SKIPPED");assert.ok((await db.user.findUniqueOrThrow({where:{id:disposable.id}})).closedAt);
  async function queuedFor(owner:Actor){const originalUser=await db.user.findUniqueOrThrow({where:{id:owner.id}});const f=await fixture(originalUser);await block(f);return{...f,notice:await noticeFor(f.appointment.id)}}
  const appDelete=await queued();await isolate(appDelete);await cancel(appDelete);assert.equal((await request("DELETE",`/appointments/${appDelete.appointment.id}`,admin)).status,200);assert.equal((await db.notification.findUniqueOrThrow({where:{id:appDelete.notice.id}})).appointmentId,null);assert.ok(await db.emailJob.findUnique({where:{notificationId:appDelete.notice.id}}));
  t.diagnostic("Real Mailpit SMTP acceptance captured; accepted-then-crashed SMTP duplicate reproduced; deletion preserves and detaches records without a new notification-history deletion block");

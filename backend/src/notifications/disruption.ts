@@ -19,9 +19,15 @@ export async function detachAppointmentNotices(tx: Prisma.TransactionClient, whe
   await resolveNotices(tx, ids);
   await tx.notification.updateMany({ where: { id: { in: ids } }, data: { appointmentId: null } });
 }
-export async function detachRecipientNotices(tx: Prisma.TransactionClient, recipientId: number) {
+export async function detachRecipientNotices(tx: Prisma.TransactionClient, recipientId: number, fenceInFlight = false) {
   const notices = await tx.notification.findMany({ where: { recipientId }, select: { id: true }, orderBy: { id: "asc" } });
   const ids = notices.map(n => n.id);
   await resolveNotices(tx, ids);
+  if (fenceInFlight) {
+    // A prepared message can already be outside the database. Prevent retries/renewal and
+    // stale completion, but retain sendingAt and an explicit delivery-uncertain marker.
+    await tx.emailJob.updateMany({ where: { notificationId: { in: ids }, status: "PROCESSING" },
+      data: { status: "SKIPPED", claimToken: null, lockedUntil: null, lastError: "ACCOUNT_CLOSED_DELIVERY_UNCERTAIN" } });
+  }
   await tx.notification.updateMany({ where: { id: { in: ids } }, data: { recipientId: null, appointmentId: null } });
 }

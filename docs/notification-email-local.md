@@ -88,11 +88,14 @@ email addresses, visit reasons, raw SMTP responses and credentials are **not sto
 in notification/job rows or worker logs**. Mailpit captures necessarily contain the
 synthetic recipient email and rendered body until the capture data is removed.
 
-This is **not full account closure or anonymization**. Snapshot retention and the
-pre-existing rescheduling-history restrictions are explicitly unfinished work for
-that later milestone. This change also adds no revocation mechanism for existing
-stateless JWTs; full closure needs a separate session/token policy review. Detached
-records and capture data are not automatically erased.
+The notification milestone alone was **not full account closure or anonymization**.
+Patient hard deletion is now replaced by [patient account closure](patient-account-closure.md),
+which retains the account/history relations, cancels the agreed visits, removes
+login/contact details and invalidates versioned JWTs. It also fences prepared email
+claims, with an explicit delivery-uncertain marker. The notification-only deletion
+behavior described above remains applicable to other permitted deletion paths.
+Detached records, retained snapshots and capture data are not automatically erased;
+full erasure and retention-expiry policy remain unfinished.
 
 ## Verification
 

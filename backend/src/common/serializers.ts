@@ -3,7 +3,7 @@ import type { Appointment, Calendar, User } from "@prisma/client";
 // Deliberate allowlist: private phone is never included in generic/nested users.
 export function serializeUser(user: User) {
   return { id: user.id, name: user.name, email: user.email, role: user.role,
-    specialization: user.specialization, createdAt: user.createdAt, updatedAt: user.updatedAt };
+    specialization: user.specialization, closedAt: user.closedAt ?? null, createdAt: user.createdAt, updatedAt: user.updatedAt };
 }
 export function serializeOwnUser(user: User) {
   return { ...serializeUser(user), ...(user.role === "PATIENT" ? { phone: user.phone ?? null } : {}) };

@@ -49,11 +49,11 @@ export class EmailWorker {
       // No job row lock is held while waiting for the notice; mutation paths use notice -> job order too.
       await tx.$queryRaw(Prisma.sql`SELECT id FROM "Notification" WHERE id = ${job.notificationId} FOR UPDATE`);
       const notice = await tx.notification.findUnique({ where: { id: job.notificationId }, include: {
-        recipient: { select: { id: true, role: true, email: true } },
+        recipient: { select: { id: true, role: true, email: true, closedAt: true } },
         appointment: { select: { status: true, version: true, calendarId: true, patientId: true } },
       } });
       const now = this.clock();
-      if (!notice || notice.resolvedAt || !notice.recipient || notice.recipient.role !== "PATIENT" ||
+      if (!notice || notice.resolvedAt || !notice.recipient || notice.recipient.closedAt || notice.recipient.role !== "PATIENT" ||
         !notice.appointment || notice.appointment.status !== "NEEDS_RESCHEDULING" ||
         notice.appointment.version !== notice.disruptionVersion || notice.appointment.calendarId !== notice.calendarRef ||
         notice.appointment.patientId !== notice.recipient.id) {

@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { AppShell, Notice, PageHeader, RequireAuth } from "../components/AppShell";
 import { apiRequest } from "../lib/api";
 import type { User } from "../lib/types";
+import { ClosePatientAccount } from "../components/ClosePatientAccount";
 import { useAuth } from "../lib/useAuth";
 
 export default function ProfilePage() {
@@ -68,12 +69,13 @@ function ProfileContent() {
           <label>Phone number (optional)<input defaultValue={user.phone ?? ""} name="phone" type="tel" autoComplete="tel" maxLength={40} placeholder="+48 500 100 200" /></label>
           <p className="form-help">Reception can use this number if your appointment is disrupted. Include the country code.</p>
         </> : null}
-        <label>
+        {user && user.role !== "PATIENT" ? <label>
           Role
-          <input disabled value={user?.role ?? ""} />
-        </label>
+          <input disabled value={user.role} />
+        </label> : null}
         <button className="button button-primary" type="submit">Save profile</button>
       </form>
+      {auth?.role === "PATIENT" ? <ClosePatientAccount /> : null}
     </>
   );
 }

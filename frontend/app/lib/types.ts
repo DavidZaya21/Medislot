@@ -9,6 +9,7 @@ export type User = {
   name: string;
   email: string;
   phone?: string | null;
+  closedAt?: string | null;
   role: Role;
   specialization?: Specialization | null;
   createdAt?: string;
@@ -55,6 +56,7 @@ export type PaginationMeta = {
 };
 
 export type AuthState = {
+  sessionId?: string;
   token: string;
   role: Role;
   userId: number;

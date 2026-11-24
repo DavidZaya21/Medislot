@@ -3,6 +3,8 @@ import { Role } from "@prisma/client";
 import { Transform } from "class-transformer";
 import {
   IsEmail,
+  Equals,
+  IsUUID,
   IsEnum,
   IsInt,
   IsOptional,
@@ -69,4 +71,13 @@ export class UserListQueryDto {
   @Min(1)
   @Max(100)
   pageSize?: number;
+}
+
+export class ClosePatientAccountDto {
+  @IsString() @MinLength(1) @MaxLength(255)
+  currentPassword!: string;
+  @Equals(true)
+  confirmed!: boolean;
+  @IsUUID("4")
+  requestId!: string;
 }

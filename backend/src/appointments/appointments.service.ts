@@ -1,3 +1,4 @@
+import { assertAppointmentDeletionAllowed } from "../common/appointment-retention";
 import { Inject, Injectable } from "@nestjs/common";
 import { Prisma, Role } from "@prisma/client";
 import type { AppointmentStatus } from "@prisma/client";
@@ -311,6 +312,7 @@ export class AppointmentsService {
 
     await this.prisma.$transaction(async (tx) => {
       await lockDoctor(tx, appointment.doctorId);
+      await assertAppointmentDeletionAllowed(tx, { id: appointmentId });
       await lockPatient(tx, appointment.patientId);
       const current = await tx.appointment.findUnique({ where: { id: appointmentId } });
       if (!current) throw toNotFound("Appointment");

@@ -1,5 +1,6 @@
 import {
   Body,
+  HttpCode,
   Controller,
   Delete,
   Get,
@@ -14,7 +15,7 @@ import {
 } from "@nestjs/common";
 import { Role } from "@prisma/client";
 
-import { AuthGuard } from "../auth/auth.guard";
+import { AuthGuard, ClosureAuthGuard } from "../auth/auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { RolesGuard } from "../auth/roles.guard";
 import { Roles } from "../auth/roles.decorator";
@@ -22,6 +23,7 @@ import type { AuthUser } from "../auth/auth.types";
 import { AppointmentListQueryDto } from "../appointments/appointments.dto";
 import {
   PatientRegistrationDto,
+  ClosePatientAccountDto,
   UserListQueryDto,
   UserUpdateDto,
 } from "./users.dto";
@@ -35,6 +37,13 @@ export class UsersController {
   registerPatient(@Body(new ValidationPipe({ expectedType: PatientRegistrationDto, transform: true, whitelist: true })) body: PatientRegistrationDto) {
     return this.usersService.registerPatient(body);
   }
+
+  @Post("me/close")
+  @HttpCode(200)
+  @UseGuards(ClosureAuthGuard, RolesGuard)
+  @Roles(Role.PATIENT)
+  closeOwnAccount(@Body(new ValidationPipe({ expectedType: ClosePatientAccountDto, transform: true, whitelist: true })) body: ClosePatientAccountDto,
+    @CurrentUser() user: AuthUser) { return this.usersService.closePatientAccount(user.userId, body); }
 
   @Get()
   @UseGuards(AuthGuard, RolesGuard)

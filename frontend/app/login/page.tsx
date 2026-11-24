@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -13,6 +13,8 @@ export default function LoginPage() {
   const { login } = useAuth();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [closed, setClosed] = useState(false);
+  useEffect(() => { setClosed(previous => previous || new URLSearchParams(window.location.search).get("accountClosed") === "1" || window.sessionStorage.getItem("medislot.accountClosed") === "1"); }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -22,6 +24,7 @@ export default function LoginPage() {
     const form = new FormData(event.currentTarget);
     try {
       const auth = await login(String(form.get("email")), String(form.get("password")));
+      window.sessionStorage.removeItem("medislot.accountClosed");
       const destination = returnDestination(new URLSearchParams(window.location.search).get("next"));
       router.push(destination ?? (auth.role === "PATIENT" ? "/calendars" : "/"));
     } catch (caught) {
@@ -54,6 +57,7 @@ export default function LoginPage() {
               type="password"
             />
           </label>
+          {closed ? <Notice message="Your account is closed. Login and contact details have been removed; authorized staff retain the history described in your confirmation." /> : null}
           {error ? <Notice message={error} tone="error" /> : null}
           <button className="button button-primary" disabled={loading} type="submit">
             {loading ? "Signing in..." : "Log in"}

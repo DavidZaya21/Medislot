@@ -25,7 +25,7 @@ test("transactional rescheduling: eligibility, versions, history and determinist
   async function user(role: Role, specialization: Specialization | null = null) {
     return db.user.create({ data: { name: "Test " + ++sequence, email: `user${sequence}@example.test`, password: "unused", role, specialization } });
   }
-  const token = (u: { id: number; role: Role }) => jwt.sign({ sub: u.id, role: u.role }, process.env.JWT_SECRET!, { expiresIn: "1h" });
+  const token = (u: { id: number; role: Role }) => jwt.sign({ authVersion: 1, sub: u.id, role: u.role }, process.env.JWT_SECRET!, { expiresIn: "1h" });
   const admin = await user(Role.ADMIN), receptionist = await user(Role.RECEPTIONIST), manager = await user(Role.MANAGER);
   const a = await user(Role.DOCTOR, Specialization.CARDIOLOGY), b = await user(Role.DOCTOR, Specialization.CARDIOLOGY);
   const wrong = await user(Role.DOCTOR, Specialization.NEUROLOGY), unknown = await user(Role.DOCTOR);

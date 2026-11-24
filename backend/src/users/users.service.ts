@@ -1,19 +1,56 @@
+import { assertAppointmentDeletionAllowed } from "../common/appointment-retention";
 import { Inject, Injectable } from "@nestjs/common";
 import bcrypt from "bcrypt";
+import { randomUUID } from "node:crypto";
+import type { ClosePatientAccountDto } from "./users.dto";
 import { Prisma, Role } from "@prisma/client";
 import type { AppointmentStatus, User } from "@prisma/client";
 
 import type { AuthUser } from "../auth/auth.types";
-import { mapPrismaError, toConflict, toForbidden, toNotFound } from "../common/prisma-errors";
+import { mapPrismaError, toConflict, toForbidden, toNotFound, toUnauthorized } from "../common/prisma-errors";
 import { normalizePatientPhone } from "../common/patient-phone";
 import { releaseReservation } from "../common/doctor-lock";
 import { serializeAppointment, serializeUser, serializeOwnUser } from "../common/serializers";
-import { detachAppointmentNotices, detachRecipientNotices } from "../notifications/disruption";
+import { detachAppointmentNotices, detachRecipientNotices, resolveDisruption } from "../notifications/disruption";
 import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
 export class UsersService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+
+  async closePatientAccount(userId: number, input: ClosePatientAccountDto) {
+    return this.prisma.$transaction(async tx => {
+      // Match the established rare account-deletion order: all doctors, then patient.
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE role = 'DOCTOR' ORDER BY id FOR UPDATE`);
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`);
+      const patient = await tx.user.findUnique({ where: { id: userId } });
+      if (!patient || patient.role !== Role.PATIENT) throw toForbidden();
+      if (patient.closedAt) {
+        if (patient.closureRequestId !== input.requestId) throw toUnauthorized();
+        return { closed: true };
+      }
+      if (!input.confirmed || !await bcrypt.compare(input.currentPassword, patient.password)) {
+        throw toUnauthorized("Current password is incorrect");
+      }
+      // Database time is evaluated after lock waits, rather than transaction-start time.
+      const [{ now }] = await tx.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`;
+      const appointments = await tx.appointment.findMany({ where: { patientId: userId,
+        OR: [{ status: "NEEDS_RESCHEDULING" }, { status: "CONFIRMED", calendar: { startTime: { gt: now } } }] }, orderBy: { id: "asc" } });
+      for (const appointment of appointments) {
+        await tx.appointment.update({ where: { id: appointment.id }, data: { status: "CANCELLED", version: { increment: 1 } } });
+        await resolveDisruption(tx, appointment.id);
+        await releaseReservation(tx, appointment.calendarId);
+      }
+      // Keep history relations, but remove obsolete patient inbox/deep links and stop queued work.
+      await detachRecipientNotices(tx, userId, true);
+      await tx.user.update({ where: { id: userId }, data: {
+        closedAt: now, authVersion: { increment: 1 }, closureRequestId: input.requestId,
+        name: "Closed patient", email: `closed-${userId}-${randomUUID()}@account.invalid`,
+        phone: null, specialization: null, password: "!CLOSED!",
+      } });
+      return { closed: true };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 15000 }).catch(error => mapPrismaError(error, { uniqueConstraintMessage: "Closure request ID was already used" }));
+  }
 
   async registerPatient(input: { name: string; email: string; password: string; phone?: string | null }) {
     try {
@@ -97,7 +134,7 @@ export class UsersService {
 
     try {
       const user = await this.prisma.user.update({
-        where: { id: userId },
+        where: { id: userId, closedAt: null },
         data: {
           name: input.name,
           email: input.email,
@@ -122,11 +159,13 @@ export class UsersService {
       await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`);
       const current = await tx.user.findUnique({ where: { id: userId } });
       if (!current) throw toNotFound("User");
+      if (current.role === Role.PATIENT) throw toConflict("Patient accounts must be closed, not deleted");
       if (await tx.appointmentRescheduleHistory.findFirst({ where: { OR: [
         { actorId: userId }, { previousDoctorId: userId }, { newDoctorId: userId },
         { appointment: { is: { patientId: userId } } },
       ] }, select: { id: true } })) throw toConflict("Account is referenced by preserved rescheduling history");
       const affected = { OR: [{ doctorId: userId }, { patientId: userId }] };
+      await assertAppointmentDeletionAllowed(tx, affected);
       if (await tx.appointment.findFirst({ where: { ...affected, status: "NEEDS_RESCHEDULING" } })) {
         throw toConflict("Account has appointments awaiting rescheduling");
       }
@@ -136,15 +175,8 @@ export class UsersService {
         await tx.appointment.deleteMany({ where: { doctorId: userId } });
         await tx.calendar.deleteMany({ where: { doctorId: userId } });
       }
-      if (current.role === "PATIENT") {
-        const reservations = await tx.appointment.findMany({
-          where: { patientId: userId, status: "CONFIRMED" }, select: { calendarId: true },
-        });
-        await tx.appointment.deleteMany({ where: { patientId: userId } });
-        for (const { calendarId } of reservations) await releaseReservation(tx, calendarId);
-      }
       await tx.user.delete({ where: { id: userId } });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15_000 });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 15_000 });
   }
 
   async listAppointmentsByUser(

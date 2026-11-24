@@ -232,3 +232,5 @@ Supabase until separately authorized.
 See [reception follow-up](docs/reception-follow-up.md) for case deadlines, role scope,
 phone privacy, manual contact records, migration preservation and disposable tests.
 Migration `20261123000000_reception_follow_ups` is pending separate Supabase deployment authorization.
+
+Patient account closure, retained history, token invalidation and email limitations: [implementation notes](docs/patient-account-closure.md). The closure migration is pending deployment; tests use disposable PostgreSQL only.

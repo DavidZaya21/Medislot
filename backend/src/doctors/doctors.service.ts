@@ -1,3 +1,4 @@
+import { assertAppointmentDeletionAllowed } from "../common/appointment-retention";
 import { Inject, Injectable } from "@nestjs/common";
 import bcrypt from "bcrypt";
 import { Prisma } from "@prisma/client";
@@ -80,6 +81,7 @@ export class DoctorsService {
 
     await this.prisma.$transaction(async (tx) => {
       await lockDoctor(tx, doctorId);
+      await assertAppointmentDeletionAllowed(tx, { doctorId });
       if (await tx.appointmentRescheduleHistory.findFirst({ where: { OR: [
         { previousDoctorId: doctorId }, { newDoctorId: doctorId }, { actorId: doctorId },
       ] }, select: { id: true } })) throw toConflict("Doctor is referenced by preserved rescheduling history");

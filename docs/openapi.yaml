@@ -32,6 +32,7 @@ paths:
     post:
       tags: [Sessions]
       summary: Create an access token for an existing user
+      description: Closed accounts cannot sign in. Tokens carry an authentication version checked against the current account on every authenticated request.
       operationId: createSession
       requestBody:
         required: true
@@ -98,6 +99,52 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /users/me/close:
+    post:
+      tags: [Users]
+      summary: Close the authenticated patient's own account
+      description: >-
+        Requires current password and explicit confirmation. Cancels future confirmed and all
+        disrupted visits using post-lock database time. In-progress, ended and terminal visits
+        remain unchanged. Login/contact details are removed; linked appointment, rescheduling
+        and contact history including reasons/notes remains for authorized staff. This is not
+        anonymization or full erasure. Unsent email work is suppressed; already in-flight or
+        externally accepted messages cannot reliably be recalled. The same requestId can replay
+        the committed success without writes using the original token only on this endpoint.
+        All other requests with closed-account tokens are rejected. Unversioned JWTs require login.
+      operationId: closeOwnPatientAccount
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, confirmed, requestId]
+              properties:
+                currentPassword: { type: string, minLength: 1, maxLength: 255, writeOnly: true }
+                confirmed: { type: boolean, enum: [true] }
+                requestId: { type: string, format: uuid, description: A stable UUID v4 for this closure attempt and its retries. }
+      responses:
+        "200":
+          description: Account closed or committed closure receipt replayed without writes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [closed]
+                properties:
+                  closed: { type: boolean, enum: [true] }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
   /users/{userId}:
     get:
       tags: [Users]
@@ -156,6 +203,7 @@ paths:
     delete:
       tags: [Users]
       summary: Delete a user account
+      description: ADMIN only. Patient accounts must use own-account closure; hard deletion is rejected. Closed-patient appointment history cannot be erased through doctor deletion.
       operationId: deleteUserById
       security:
         - bearerAuth: []
@@ -1767,6 +1815,10 @@ components:
           $ref: "#/components/schemas/Role"
         specialization:
           $ref: "#/components/schemas/NullableSpecialization"
+        closedAt:
+          type: [string, "null"]
+          format: date-time
+          description: Closed account marker; internal authentication versions and closure receipt IDs are never exposed.
         createdAt:
           type: string
           format: date-time

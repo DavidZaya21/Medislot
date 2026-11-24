@@ -22,9 +22,12 @@ export function useAuth() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const stored = getStoredAuth();
-    setAuth(stored);
-    setReady(true);
+    const sync = () => { setAuth(getStoredAuth()); setReady(true); };
+    sync();
+    const storage = (event: StorageEvent) => { if (event.key === "medislot.auth" || event.key === null) sync(); };
+    window.addEventListener("storage", storage);
+    window.addEventListener("medislot-auth-changed", sync);
+    return () => { window.removeEventListener("storage", storage); window.removeEventListener("medislot-auth-changed", sync); };
   }, []);
 
   useEffect(() => {
@@ -33,9 +36,11 @@ export function useAuth() {
       return;
     }
 
+    let active = true;
     apiRequest<User>(`/users/${auth.userId}`, { token: auth.token })
-      .then(setProfile)
-      .catch(() => setProfile(null));
+      .then(user => { if (active) setProfile(user); })
+      .catch(() => { if (active) setProfile(null); });
+    return () => { active = false; };
   }, [auth]);
 
   const role = auth?.role ?? null;

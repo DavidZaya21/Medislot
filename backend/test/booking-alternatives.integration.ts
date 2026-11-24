@@ -33,7 +33,7 @@ test("initial booking alternatives: same-doctor ranking, eligibility, identity, 
   }
   type Actor = { id: number; role: Role };
   async function request(path: string, actor?: Actor, body?: object) {
-    const response = await fetch(base + path, { method: body ? "POST" : "GET", headers: { "Content-Type": "application/json", ...(actor ? { Authorization: "Bearer " + jwt.sign({ sub: actor.id, role: actor.role }, process.env.JWT_SECRET!, { expiresIn: "1h" }) } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    const response = await fetch(base + path, { method: body ? "POST" : "GET", headers: { "Content-Type": "application/json", ...(actor ? { Authorization: "Bearer " + jwt.sign({ authVersion: 1, sub: actor.id, role: actor.role }, process.env.JWT_SECRET!, { expiresIn: "1h" }) } : {}) }, body: body ? JSON.stringify(body) : undefined });
     return { status: response.status, body: await response.json() };
   }
   const original = await slot("2030-01-07T10:00:00Z", { booked: true }); await appointment(other.id, original);

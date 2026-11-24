@@ -13,7 +13,7 @@ export class SessionsService {
   async createSession(email: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
 
-    if (!user) {
+    if (!user || user.closedAt) {
       throw toUnauthorized("Invalid email or password");
     }
 
@@ -26,6 +26,7 @@ export class SessionsService {
       {
         sub: user.id,
         role: user.role,
+        authVersion: user.authVersion,
       },
       getJwtSecret(),
       { expiresIn: "7d" },

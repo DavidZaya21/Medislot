@@ -78,6 +78,7 @@ test("user listing paginates after applying role and search filters", async () =
         email: "anna@example.com",
         role: Role.PATIENT,
         specialization: null,
+        closedAt: null,
         createdAt,
         updatedAt,
       },

@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { toNotFound } from "./prisma-errors";
+import { toNotFound, toConflict } from "./prisma-errors";
 
 export async function lockDoctor(tx: Prisma.TransactionClient, doctorId: number) {
   const doctors = await tx.$queryRaw<{ id: number }[]>(Prisma.sql`
@@ -25,6 +25,8 @@ export async function lockPatient(tx: Prisma.TransactionClient, patientId: numbe
   const patients = await tx.$queryRaw<{ id: number }[]>(Prisma.sql`
     SELECT id FROM "User" WHERE id = ${patientId} AND role = 'PATIENT' FOR UPDATE`);
   if (!patients.length) throw toNotFound("Patient");
+  const patient = await tx.user.findUnique({ where: { id: patientId }, select: { closedAt: true } });
+  if (patient?.closedAt) throw toConflict("Patient account is closed");
 }
 
 export async function hasPatientOverlap(

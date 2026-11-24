@@ -674,3 +674,33 @@ td.row-actions {
   outline: 3px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* Override the shared grid labels and full-width inputs for this acknowledgement. */
+.account-closure-acknowledgement {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.account-closure-acknowledgement input[type="checkbox"] {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: 2px 0 0;
+  padding: 0;
+}
+
+.account-closure-acknowledgement label {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.5;
+}
+
+.account-closure-actions {
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}

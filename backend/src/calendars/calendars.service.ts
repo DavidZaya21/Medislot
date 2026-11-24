@@ -85,7 +85,7 @@ export class CalendarsService {
         startTime: { lt: endTime }, endTime: { gt: startTime } };
       const blocked = await tx.calendar.updateMany({ where: { ...where, isBlocked: false }, data: { isBlocked: true } });
       const affected = await tx.appointment.updateManyAndReturn({
-        where: { status: "CONFIRMED", calendar: { is: where } },
+        where: { status: "CONFIRMED", patient: { closedAt: null }, calendar: { is: where } },
         data: { status: "NEEDS_RESCHEDULING", version: { increment: 1 } },
         include: { doctor: { select: { name: true } }, calendar: { select: { startTime: true, endTime: true } } },
       });
