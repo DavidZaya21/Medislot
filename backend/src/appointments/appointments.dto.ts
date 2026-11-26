@@ -1,6 +1,6 @@
 import { AppointmentStatus } from "@prisma/client";
 import { Transform } from "class-transformer";
-import { IsEnum, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
+import { IsEnum, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 
 export class AppointmentListQueryDto {
   @IsOptional()
@@ -31,17 +31,15 @@ export class CreateAppointmentDto {
 }
 
 export class UpdateAppointmentDto {
+  @IsOptional() @IsBoolean() legacyDisruption?: boolean;
   @IsOptional() @IsInt() @Min(1) @Max(2147483647) notificationId?: number;
   @IsOptional() @IsInt() @Min(1) @Max(2147483647) disruptionVersion?: number;
-  @IsOptional() @IsInt() @Min(1) @Max(2147483647) currentCalendarId?: number;
-  @IsOptional() @IsInt() @Min(1) @Max(2147483647) expectedVersion?: number;
-  @IsIn(["CONFIRMED", "CANCELLED", "COMPLETED", "NO_SHOW"])
+  @IsInt() @Min(1) @Max(2147483647) currentCalendarId!: number;
+  @IsInt() @Min(1) @Max(2147483647) expectedVersion!: number;
+  @IsIn(["CANCELLED", "COMPLETED", "NO_SHOW"])
   status!: AppointmentStatus;
-
-  @IsString()
-  @MinLength(5)
-  @MaxLength(500)
-  reason!: string;
+  // Legacy clients may send the old field; status changes never alter the reason.
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 
 export class RescheduleAppointmentDto {

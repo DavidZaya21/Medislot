@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { BookingAlternatives, isSlotUnavailable, type BookingRequest } from "./BookingAlternatives";
 import { Notice } from "./AppShell";
-import { apiRequest } from "../lib/api";
+import { apiRequest, getStoredAuth } from "../lib/api";
 import { clinicDateTime, CLINIC_TIME_NOTICE } from "../lib/clinicTime";
 import { useClinicTimeNotice } from "../lib/useClinicTimeNotice";
 import type { Appointment, AuthState, CalendarSlot } from "../lib/types";
@@ -11,18 +11,20 @@ import type { Appointment, AuthState, CalendarSlot } from "../lib/types";
 type Confirmation = BookingRequest & { slot: CalendarSlot };
 
 // Shared by patient slot selection and the existing staff booking form.
-export function useAppointmentBooking({ auth, setMessage, setError, onSuccess, onUnavailable }: {
+export function useAppointmentBooking({ auth, setMessage, setError, onSuccess, onUnavailable, onPendingChange }: {
   auth: AuthState | null;
   setMessage: (message: string) => void;
   setError: (message: string) => void;
   onSuccess: (appointment: Appointment) => void;
   onUnavailable?: () => void;
+  onPendingChange?: (pending: boolean, operationId: string) => boolean | void;
 }) {
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [failedBooking, setFailedBooking] = useState<{ request: BookingRequest; key: number } | null>(null);
   const [booking, setBooking] = useState(false);
   const bookingRef = useRef(false);
   const context = useRef(0);
+  const session = useRef(0), activeOperation = useRef<string | null>(null);
 
   function clearBookingRecovery() {
     context.current++;
@@ -30,18 +32,24 @@ export function useAppointmentBooking({ auth, setMessage, setError, onSuccess, o
     setConfirmation(null);
   }
   useEffect(() => {
+    session.current++; activeOperation.current = null; bookingRef.current = false; setBooking(false);
     clearBookingRecovery();
-    return () => { context.current++; };
-  }, [auth?.userId, auth?.role, auth?.token]);
+    return () => { context.current++; session.current++; };
+  }, [auth?.userId, auth?.role, auth?.token, auth?.sessionId]);
 
   async function bookAppointment(request: BookingRequest, form?: HTMLFormElement) {
     if (!auth || bookingRef.current) return;
-    const revision = context.current;
+    const revision = context.current, generation = session.current;
+    const currentSession = () => { const stored=getStoredAuth(); return session.current===generation && stored?.token===auth.token && stored.userId===auth.userId && stored.sessionId===auth.sessionId; };
+    if (!currentSession()) return;
+    const operationId = crypto.randomUUID();
+    if (onPendingChange?.(true, operationId) === false) return;
+    activeOperation.current = operationId;
     bookingRef.current = true;
     setBooking(true); setError(""); setMessage("");
     try {
       const booked = await apiRequest<Appointment>("/appointments", { method: "POST", token: auth.token, body: request });
-      if (revision !== context.current) return;
+      if (!currentSession() || revision !== context.current) return;
       setFailedBooking(null); setConfirmation(null);
       setMessage(booked.slotStartTime
         ? "Appointment confirmed: " + clinicDateTime(booked.slotStartTime) + (booked.slotEndTime ? " – " + clinicDateTime(booked.slotEndTime) : "")
@@ -49,7 +57,7 @@ export function useAppointmentBooking({ auth, setMessage, setError, onSuccess, o
       form?.reset();
       onSuccess(booked);
     } catch (caught) {
-      if (revision !== context.current) return;
+      if (!currentSession() || revision !== context.current) return;
       setConfirmation(null);
       if (isSlotUnavailable(caught)) {
         setError("");
@@ -59,7 +67,10 @@ export function useAppointmentBooking({ auth, setMessage, setError, onSuccess, o
         setFailedBooking(null);
         setError(caught instanceof Error ? caught.message : "Could not create appointment");
       }
-    } finally { bookingRef.current = false; setBooking(false); }
+    } finally {
+      if (currentSession() && activeOperation.current === operationId) { activeOperation.current = null; bookingRef.current = false; setBooking(false); }
+      onPendingChange?.(false, operationId);
+    }
   }
   return { confirmation, setConfirmation, failedBooking, booking, bookingRef, clearBookingRecovery, bookAppointment };
 }

@@ -80,7 +80,7 @@ function UnavailabilityForm() {
   return <>
     <PageHeader eyebrow="Schedules" title="Doctor unavailability" />
     {/* <p>All date-time fields use Europe/Warsaw, regardless of your device’s timezone.</p> */}
-    <p>This blocks overlapping existing published slots and marks their confirmed appointments as needing rescheduling. Original appointments are preserved; they are not automatically rescheduled. It does not block future publication in an empty range.</p>
+    <p>This blocks overlapping future published slots and marks their confirmed appointments as needing rescheduling. Original appointments are preserved; they are not automatically rescheduled. It does not block future publication in an empty range.</p>
     <form className="form-card" onSubmit={review} onChange={() => {
       if (!inFlight.current) { setConfirmation(null); setResult(null); setError(""); }
     }}>
@@ -105,7 +105,7 @@ function UnavailabilityForm() {
       <h2>Confirm block</h2>
       <p>Doctor: {confirmation.doctorName}</p>
       <p>{clinicDateTime(confirmation.startTime)} – {clinicDateTime(confirmation.endTime)} (Europe/Warsaw)</p>
-      <p>Overlapping published slots will become blocked, including booked slots. Their confirmed appointments will need rescheduling. No appointments will be deleted.</p>
+      <p>Overlapping published slots that have not started will become blocked, including booked slots. Started and ended slots stay unchanged. Their confirmed appointments will need rescheduling. No appointments will be deleted.</p>
       <div className="row-actions">
         <button className="button button-primary" type="button" disabled={pending} onClick={block}>{pending ? "Blocking…" : "Confirm block"}</button>
         <button className="button button-secondary" type="button" disabled={pending} onClick={() => setConfirmation(null)}>Cancel</button>
@@ -116,7 +116,7 @@ function UnavailabilityForm() {
         <h2>Blocking complete</h2>
         <p>Newly blocked slots: {result.blockedSlots}</p>
         <p>Appointments needing rescheduling: {result.appointmentsNeedingRescheduling}</p>
-        {result.blockedSlots === 0 && result.appointmentsNeedingRescheduling === 0 ? <p>No new changes were needed. The range may already be blocked or have no published slots.</p> : null}
+        {result.blockedSlots === 0 && result.appointmentsNeedingRescheduling === 0 ? <p>No new changes were needed. The range may already be blocked or have no future published slots.</p> : null}
         <Link className="button button-secondary" href="/calendars">View calendar slots</Link>
       </section> : null}
     </div>

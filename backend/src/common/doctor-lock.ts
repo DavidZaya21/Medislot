@@ -21,12 +21,12 @@ export async function lockDoctors(tx: Prisma.TransactionClient, doctorIds: numbe
   for (const id of [...new Set(doctorIds)].sort((a, b) => a - b)) await lockDoctor(tx, id);
 }
 
-export async function lockPatient(tx: Prisma.TransactionClient, patientId: number) {
+export async function lockPatient(tx: Prisma.TransactionClient, patientId: number, allowClosed = false) {
   const patients = await tx.$queryRaw<{ id: number }[]>(Prisma.sql`
     SELECT id FROM "User" WHERE id = ${patientId} AND role = 'PATIENT' FOR UPDATE`);
   if (!patients.length) throw toNotFound("Patient");
   const patient = await tx.user.findUnique({ where: { id: patientId }, select: { closedAt: true } });
-  if (patient?.closedAt) throw toConflict("Patient account is closed");
+  if (patient?.closedAt && !allowClosed) throw toConflict("Patient account is closed");
 }
 
 export async function hasPatientOverlap(

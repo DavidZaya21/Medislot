@@ -1,3 +1,5 @@
+import { disruptionInclude } from "../common/serializers";
+import { AppointmentLifecycle } from "../common/appointment-lifecycle";
 import { assertAppointmentDeletionAllowed } from "../common/appointment-retention";
 import { Inject, Injectable } from "@nestjs/common";
 import { Prisma, Role } from "@prisma/client";
@@ -9,19 +11,21 @@ import { lockDoctor, lockDoctors, lockPatient, hasPatientOverlap, releaseReserva
 import { ensureMoveCutoff, replacementEligibilityError, intervalsOverlap, type ReplacementContext } from "../common/rescheduling-policy";
 import { recommendationWindow, rankAlternatives } from "../common/rescheduling-recommendations";
 import type { RescheduleAppointmentDto } from "./appointments.dto";
-import { serializeAppointment, serializeCalendar } from "../common/serializers";
+import { serializeAppointment, serializeManagerAppointment, serializeManagerCalendar, serializeCalendar } from "../common/serializers";
 import { assertCurrentCase, type CaseIdentity } from "../follow-ups/case-guard";
 import { resolveDisruption, detachAppointmentNotices } from "../notifications/disruption";
 import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
 export class AppointmentsService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(AppointmentLifecycle) private readonly lifecycle: AppointmentLifecycle = new AppointmentLifecycle()) {}
 
-  async listAppointments(status?: AppointmentStatus) {
+  async listAppointments(status: AppointmentStatus | undefined, user: AuthUser) {
     const appointments = await this.prisma.appointment.findMany({
-      where: status ? { status } : undefined,
+      where: { ...(status ? { status } : {}), ...(user.role === Role.DOCTOR ? { doctorId: user.userId } : {}) },
       include: {
+        notifications: disruptionInclude,
         patient: true,
         doctor: true,
         calendar: true,
@@ -30,7 +34,7 @@ export class AppointmentsService {
       orderBy: { id: "asc" },
     });
 
-    return { data: appointments.map(serializeAppointment) };
+    return { data: appointments.map(appointment => serializeForUser(appointment, user)) };
   }
 
   async requestAppointment(input: {
@@ -39,6 +43,7 @@ export class AppointmentsService {
     calendarId: number;
     reason: string;
   }, currentUser: AuthUser) {
+    if (currentUser.role !== Role.PATIENT && currentUser.role !== Role.RECEPTIONIST) throw toForbidden();
     const patientId = currentUser.role === Role.PATIENT ? currentUser.userId : input.patientId;
 
     await this.ensurePatientExists(patientId);
@@ -93,7 +98,8 @@ export class AppointmentsService {
           reason: input.reason,
         },
         include: {
-          patient: true,
+          notifications: disruptionInclude,
+        patient: true,
           doctor: true,
           calendar: true,
         },
@@ -112,7 +118,7 @@ export class AppointmentsService {
     ensureMoveCutoff(current.status, current.calendar.startTime, user.role, Date.now());
     const slots = await this.eligibleReplacementSlots(current, Date.now());
     slots.sort((a, b) => Number(b.doctorId === current.doctorId) - Number(a.doctorId === current.doctorId));
-    return { appointment: serializeAppointment(current), data: slots.map(serializeCalendar) };
+    return { appointment: serializeForUser(current, user), data: slots.map(slot => user.role === Role.MANAGER ? serializeManagerCalendar(slot) : serializeCalendar(slot)) };
   }
 
   async alternatives(appointmentId: number, user: AuthUser) {
@@ -127,10 +133,10 @@ export class AppointmentsService {
     });
     const groups = rankAlternatives(slots, current.doctorId, current.calendar.startTime);
     return {
-      appointment: serializeAppointment(current),
+      appointment: serializeForUser(current, user),
       window: { startDate: bounds.startDate, endDate: bounds.endDate, timeZone: bounds.timeZone },
-      keepYourDay: groups.keepYourDay.map(serializeCalendar),
-      keepYourDoctor: groups.keepYourDoctor.map(serializeCalendar),
+      keepYourDay: groups.keepYourDay.map(slot => user.role === Role.MANAGER ? serializeManagerCalendar(slot) : serializeCalendar(slot)),
+      keepYourDoctor: groups.keepYourDoctor.map(slot => user.role === Role.MANAGER ? serializeManagerCalendar(slot) : serializeCalendar(slot)),
     };
   }
 
@@ -206,6 +212,7 @@ export class AppointmentsService {
         data: { doctorId: replacement.doctorId, calendarId: replacement.id, status: "CONFIRMED", version: { increment: 1 } },
         include: { patient: true, doctor: true, calendar: true },
       });
+      await this.lifecycle.record(tx, updated, current.status, "CONFIRMED", user.userId, this.lifecycle.now());
       await resolveDisruption(tx, appointmentId);
       await releaseReservation(tx, current.calendarId);
       const historyEntry = await tx.appointmentRescheduleHistory.create({ data: {
@@ -218,90 +225,75 @@ export class AppointmentsService {
         actorId: user.userId,
       } });
       const rescheduleCount = await tx.appointmentRescheduleHistory.count({ where: { appointmentId } });
-      return { ...serializeAppointment(updated), historyEntry, rescheduleCount };
+      return { ...serializeForUser(updated, user), historyEntry, rescheduleCount };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 15_000 });
   }
 
   async getAppointmentById(appointmentId: number, currentUser: AuthUser) {
     const appointment = await this.findAppointmentOrThrow(appointmentId);
-    const allowed = currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTIONIST ||
+    const allowed = currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTIONIST || currentUser.role === Role.MANAGER ||
       (currentUser.role === Role.PATIENT && appointment.patientId === currentUser.userId) ||
       (currentUser.role === Role.DOCTOR && appointment.doctorId === currentUser.userId);
-    if (!allowed && !(currentUser.role === Role.MANAGER && appointment.status === "NEEDS_RESCHEDULING")) throw toForbidden("You are not allowed to access this appointment");
-    return serializeAppointment(appointment);
+    if (!allowed) throw toForbidden("You are not allowed to access this appointment");
+    return serializeForUser(appointment, currentUser);
   }
 
-  async reviewAppointment(
-    appointmentId: number,
-    input: { status: AppointmentStatus; reason: string } & Partial<CaseIdentity>,
-    user?: AuthUser,
-  ) {
-    const current = await this.prisma.appointment.findUnique({
-      where: { id: appointmentId },
-      include: { calendar: true },
-    });
-    if (!current) throw toNotFound("Appointment");
-
-    const hasCase = [input.notificationId, input.disruptionVersion, input.currentCalendarId, input.expectedVersion].some(value => value !== undefined);
-    if (hasCase && (input.status !== "CANCELLED" || !input.notificationId || !input.disruptionVersion || !input.currentCalendarId || !input.expectedVersion)) {
-      throw toConflict("Provide the displayed disruption, calendar and version to cancel. Reload the case");
-    }
-    if (user?.role === Role.MANAGER && (!hasCase || input.status !== "CANCELLED")) throw toForbidden();
-    if (input.status === "NEEDS_RESCHEDULING") throw toConflict("Rescheduling status is assigned only by blocking");
-    if (current.status !== "CONFIRMED" && !(current.status === "NEEDS_RESCHEDULING" && input.status === "CANCELLED")) {
-      throw toConflict("Only confirmed appointments can be updated");
-    }
-
-    if (input.status === "COMPLETED" && current.calendar.endTime > new Date()) {
-      throw toConflict("Cannot complete a future appointment");
-    }
-
-    const shouldFreeSlot = input.status === "CANCELLED";
-
-    const updated = await this.prisma.$transaction(async (tx) => {
-      await lockDoctor(tx, current.doctorId);
-      await lockPatient(tx, current.patientId);
-      const refreshed = await tx.appointment.findUnique({ where: { id: appointmentId }, include: { calendar: true } });
-      if (!refreshed) throw toNotFound("Appointment");
-      if (refreshed.doctorId !== current.doctorId || refreshed.patientId !== current.patientId || refreshed.version !== current.version) {
-        throw toConflict("Appointment changed. Reload it before updating");
+  async reviewAppointment(appointmentId: number, input: import("./appointments.dto").UpdateAppointmentDto, user: AuthUser) {
+    const discovered = await this.prisma.appointment.findUnique({ where: { id: appointmentId } });
+    if (!discovered) throw toNotFound("Appointment");
+    return this.prisma.$transaction(async tx => {
+      await lockDoctor(tx, discovered.doctorId);
+      await lockPatient(tx, discovered.patientId, true);
+      await tx.$queryRaw`SELECT id FROM "Appointment" WHERE id=${appointmentId} FOR UPDATE`;
+      const current = await tx.appointment.findUnique({ where: { id: appointmentId }, include: { calendar: true, patient: true } });
+      if (!current) throw toNotFound("Appointment");
+      const actor = await tx.user.findUnique({ where: { id: user.userId } });
+      if (!actor || actor.closedAt || actor.role !== user.role ||
+        (user.role === Role.PATIENT && current.patientId !== user.userId) ||
+        (user.role === Role.DOCTOR && current.doctorId !== user.userId)) throw toForbidden();
+      const outcome = input.status === "COMPLETED" || input.status === "NO_SHOW";
+      if (outcome ? ![Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR].includes(user.role as "ADMIN"|"RECEPTIONIST"|"DOCTOR") :
+        input.status !== "CANCELLED" || ![Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR, Role.PATIENT, Role.MANAGER].includes(user.role)) throw toForbidden();
+      if (current.patientId !== discovered.patientId || current.doctorId !== discovered.doctorId ||
+        current.calendarId !== input.currentCalendarId || current.version !== input.expectedVersion) {
+        throw toConflict("Appointment changed. Reload appointments and confirm the action again");
       }
-      if (refreshed.status !== "CONFIRMED" && !(refreshed.status === "NEEDS_RESCHEDULING" && input.status === "CANCELLED")) {
-        throw toConflict("Only confirmed appointments or rescheduling cancellations can be updated");
+      if (current.patient.closedAt && !outcome) throw toConflict("Patient account is closed");
+      if (user.role === Role.MANAGER && current.status !== "NEEDS_RESCHEDULING") throw toForbidden();
+      if (current.status !== "CONFIRMED" && !(current.status === "NEEDS_RESCHEDULING" && input.status === "CANCELLED")) {
+        throw toConflict("Appointment outcome is immutable. Reload appointments");
       }
-      if (input.status === "COMPLETED" && refreshed.calendar.endTime > new Date()) {
-        throw toConflict("Cannot complete a future appointment");
+      const hasCase = input.notificationId !== undefined || input.disruptionVersion !== undefined;
+      if (current.status === "NEEDS_RESCHEDULING") {
+        // Lookup by immutable identity, including resolved/detached rows: malformed
+        // notification-backed cases must never masquerade as a missing legacy case.
+        const notice = await tx.notification.findUnique({ where: { appointmentRef_disruptionVersion: {
+          appointmentRef: current.id, disruptionVersion: current.version,
+        } } });
+        if (notice) {
+          if (input.legacyDisruption || !input.notificationId || !input.disruptionVersion) {
+            throw toConflict("Current disruption identity is required. Reload the case");
+          }
+          await assertCurrentCase(tx, current, input as CaseIdentity);
+        } else if (input.legacyDisruption !== true || hasCase) {
+          throw toConflict("This legacy disruption has no current notification. Reload and confirm legacy cancellation");
+        }
+      } else if (hasCase || input.legacyDisruption) throw toConflict("Disruption changed. Reload appointments");
+      const now = this.lifecycle.now();
+      if (current.status === "CONFIRMED" && input.status === "CANCELLED" && current.calendar.startTime <= now) {
+        throw toConflict("Appointment has already started and cannot be cancelled. Reload appointments");
       }
-      if (user) {
-        const actor = await tx.user.findUnique({where:{id:user.userId},select:{role:true}});
-        if (!actor || actor.role !== user.role) throw toForbidden();
-      }
-      if (hasCase) await assertCurrentCase(tx, refreshed, input as CaseIdentity);
-      const appointment = await tx.appointment.update({
-        where: { id: appointmentId },
-        data: {
-          status: input.status,
-          reason: input.reason,
-          version: { increment: 1 },
-        },
-        include: {
-          patient: true,
-          doctor: true,
-          calendar: true,
-        },
-      });
-
-      if (shouldFreeSlot) {
+      if (outcome && current.calendar.endTime > now) throw toConflict("Outcomes can only be recorded after the scheduled end. Reload appointments");
+      const updated = await tx.appointment.update({ where: { id: appointmentId },
+        data: { status: input.status, version: { increment: 1 } },
+        include: { patient: true, doctor: true, calendar: true, _count: { select: { rescheduleHistory: true } } } });
+      await this.lifecycle.record(tx, updated, current.status, updated.status, user.userId, now);
+      if (input.status === "CANCELLED") {
         await resolveDisruption(tx, appointmentId);
-        await releaseReservation(tx, appointment.calendarId);
-        const calendar = await tx.calendar.findUniqueOrThrow({ where: { id: appointment.calendarId } });
-        appointment.calendar.isBooked = calendar.isBooked;
+        await releaseReservation(tx, current.calendarId);
       }
-
-      return appointment;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
-
-    return serializeAppointment(updated);
+      return serializeForUser(updated, user);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 15000 });
   }
 
   async deleteAppointment(appointmentId: number) {
@@ -337,6 +329,7 @@ export class AppointmentsService {
     const appointment = await this.prisma.appointment.findUnique({
       where: { id: appointmentId },
       include: {
+        notifications: disruptionInclude,
         patient: true,
         doctor: true,
         calendar: true,
@@ -362,4 +355,8 @@ export class AppointmentsService {
     });
     if (!doctor) throw toNotFound("Doctor");
   }
+}
+
+function serializeForUser(appointment: Parameters<typeof serializeAppointment>[0], user: AuthUser) {
+  return user.role === Role.MANAGER ? serializeManagerAppointment(appointment) : serializeAppointment(appointment);
 }

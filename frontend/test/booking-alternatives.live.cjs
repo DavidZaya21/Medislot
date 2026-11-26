@@ -21,6 +21,7 @@ assert.equal(url.hostname,'127.0.0.1');assert.equal(url.pathname,'/medislot_fron
   if(scenario!=='empty')await slot(d,addDays(date,1)+'T09:00:00Z');const beyond=await slot(d,addDays(date,20)+'T09:00:00Z');
   const context=await browser.newContext({timezoneId:role==='PATIENT'?'America/New_York':'Europe/Warsaw'}),page=await context.newPage();page.setDefaultTimeout(20000);
   await page.goto(ui+'/login');await page.getByLabel('Email',{exact:true}).fill((role==='PATIENT'?patient:rec).email);await page.getByLabel('Password',{exact:true}).fill('PreviewTest123!');await page.getByRole('button',{name:'Log in',exact:true}).click();await page.waitForURL(u=>u.pathname!='/login');await page.goto(ui+(role==='PATIENT'?'/calendars?doctorId='+d.id:'/appointments'));
+  if(role==='RECEPTIONIST')await page.getByRole('button',{name:'Create appointment',exact:true}).click();
   const form=role==='PATIENT'?page.getByRole('form',{name:'Selected appointment',exact:true}):page.locator('form.form-card.compact'),reason='Preserved intended visit reason';
   if(role==='RECEPTIONIST'){
    await form.getByLabel('Patient search',{exact:true}).fill(patient.email);await form.getByRole('combobox',{name:'Patient',exact:true}).selectOption(String(patient.id));

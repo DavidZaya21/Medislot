@@ -12,10 +12,10 @@ test("GET /appointments lists appointments", async () => {
   const service = { listAppointments: listAppointments.fn } as unknown as AppointmentsService;
   const controller = new AppointmentsController(service);
 
-  const result = await controller.listAppointments({ status: AppointmentStatus.CONFIRMED });
+  const result = await controller.listAppointments({ status: AppointmentStatus.CONFIRMED }, {userId:5,role:Role.DOCTOR});
 
   assert.deepStrictEqual(result, response);
-  assert.deepStrictEqual(listAppointments.calls, [[AppointmentStatus.CONFIRMED]]);
+  assert.deepStrictEqual(listAppointments.calls, [[AppointmentStatus.CONFIRMED,{userId:5,role:Role.DOCTOR}]]);
 });
 
 test("POST /appointments creates an appointment", async () => {
@@ -64,14 +64,15 @@ test("PUT /appointments/:appointmentId updates an appointment", async () => {
   } as unknown as AppointmentsService;
   const controller = new AppointmentsController(service);
   const body = {
+    currentCalendarId: 3, expectedVersion: 1,
     status: AppointmentStatus.COMPLETED,
     reason: "Visit completed successfully",
   };
 
-  const result = await controller.reviewAppointment(1, body);
+  const result = await controller.reviewAppointment(1, body, {userId:1,role:Role.ADMIN});
 
   assert.deepStrictEqual(result, response);
-  assert.deepStrictEqual(reviewAppointment.calls, [[1, body]]);
+  assert.deepStrictEqual(reviewAppointment.calls, [[1, body,{userId:1,role:Role.ADMIN}]]);
 });
 
 test("DELETE /appointments/:appointmentId deletes an appointment", async () => {

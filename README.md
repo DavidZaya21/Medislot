@@ -234,3 +234,5 @@ phone privacy, manual contact records, migration preservation and disposable tes
 Migration `20261123000000_reception_follow_ups` is pending separate Supabase deployment authorization.
 
 Patient account closure, retained history, token invalidation and email limitations: [implementation notes](docs/patient-account-closure.md). The closure migration is pending deployment; tests use disposable PostgreSQL only.
+
+Appointment status transitions, audit retention, timing and test evidence: [lifecycle implementation](docs/appointment-lifecycle.md).

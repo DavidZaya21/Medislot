@@ -41,7 +41,7 @@ test("appointment reads enforce patient ownership, doctor assignment and route r
     { caller: patient1, statuses: [200, 403] }, { caller: patient2, statuses: [403, 200] },
     { caller: doctor1, statuses: [200, 403] }, { caller: doctor2, statuses: [403, 200] },
     { caller: admin, statuses: [200, 200] }, { caller: receptionist, statuses: [200, 200] },
-    { caller: manager, statuses: [403, 403] }, { caller: null, statuses: [401, 401] },
+    { caller: manager, statuses: [200, 200] }, { caller: null, statuses: [401, 401] },
   ];
   for (const { caller, statuses } of cases) {
     for (let i = 0; i < appointments.length; i++) {

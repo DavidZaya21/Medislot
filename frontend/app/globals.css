@@ -704,3 +704,19 @@ td.row-actions {
   gap: 12px;
   margin-top: 16px;
 }
+
+.navigation-menu { position: relative; }
+.navigation-menu-trigger { gap: 8px; border: 0; background: transparent; font: inherit; cursor: pointer; }
+.navigation-menu-panel {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 50;
+  min-width: 200px; padding: 6px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--surface, #fff); box-shadow: 0 8px 24px #10182820;
+}
+.navigation-menu-panel .nav-link { width: 100%; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.navigation-menu-panel .nav-link:hover, .navigation-menu-panel .nav-link.active { background: var(--surface-muted); }
+.navigation-menu :focus-visible { outline: 2px solid var(--accent-dark); outline-offset: 2px; }
+.session-card .navigation-menu-panel { left: auto; right: 0; }
+@media (max-width: 600px) {
+  .navigation-menu-panel { position: static; margin-top: 6px; min-width: 0; width: min(260px, calc(100vw - 40px)); }
+  .nav-list:has(.navigation-menu) { align-items: flex-start; }
+}

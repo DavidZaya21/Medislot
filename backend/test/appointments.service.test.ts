@@ -47,70 +47,23 @@ test("appointment creation rejects past calendar slots", async () => {
   );
 });
 
-test("appointment review rejects already cancelled appointments", async () => {
-  const prisma = {
-    appointment: {
-      findUnique: async () => ({
-        id: 2,
-        status: "CANCELLED",
-        calendar: {
-          endTime: new Date("2020-01-01T11:00:00.000Z"),
-        },
-      }),
-    },
-    $transaction: async () => {
-      throw new Error("cancelled appointment should fail before transaction");
-    },
-  };
-  const service = new AppointmentsService(prisma as never);
-
-  await assert.rejects(
-    () =>
-      service.reviewAppointment(2, {
-        status: "COMPLETED",
-        reason: "Already cancelled",
-      }),
-    (error) => {
-      assert.ok(error instanceof ConflictException);
-      assert.deepStrictEqual(error.getResponse(), {
-        message: "Only confirmed appointments can be updated",
-        code: "CONFLICT",
-      });
-      return true;
-    },
-  );
+for (const scenario of [
+  { status: "CANCELLED", end: "2020-01-01", message: "immutable" },
+  { status: "CONFIRMED", end: "2099-01-01", message: "scheduled end" },
+]) test(`locked appointment review rejects ${scenario.status} / ${scenario.end}`, async () => {
+  const current = {id:2,patientId:3,doctorId:5,calendarId:6,version:1,status:scenario.status,
+    patient:{closedAt:null},calendar:{endTime:new Date(scenario.end),startTime:new Date("2020-01-01")}};
+  const tx = {$queryRaw:async()=>[{id:5}],user:{findUnique:async({where}:{where:{id:number}})=>where.id===1?{id:1,role:Role.ADMIN,closedAt:null}:{id:3,role:Role.PATIENT,closedAt:null}},
+    appointment:{findUnique:async()=>current,update:async()=>{throw Error("rejected transition wrote data")}}};
+  const service = new AppointmentsService({appointment:tx.appointment,$transaction:async(fn:(db:unknown)=>unknown)=>fn(tx)} as never);
+  await assert.rejects(()=>service.reviewAppointment(2,{status:"COMPLETED",currentCalendarId:6,expectedVersion:1},{userId:1,role:Role.ADMIN}),error=>{
+    assert.ok(error instanceof ConflictException);assert.match(error.message,new RegExp(scenario.message));return true;
+  });
 });
 
-test("appointment review rejects completing future appointments", async () => {
-  const prisma = {
-    appointment: {
-      findUnique: async () => ({
-        id: 3,
-        status: "CONFIRMED",
-        calendar: {
-          endTime: new Date("2099-01-01T11:00:00.000Z"),
-        },
-      }),
-    },
-    $transaction: async () => {
-      throw new Error("future appointment should fail before transaction");
-    },
-  };
-  const service = new AppointmentsService(prisma as never);
-
-  await assert.rejects(
-    () =>
-      service.reviewAppointment(3, {
-        status: "COMPLETED",
-        reason: "Future visit",
-      }),
-    (error) => {
-      assert.ok(error instanceof ConflictException);
-      assert.deepStrictEqual(error.getResponse(), {
-        message: "Cannot complete a future appointment",
-        code: "CONFLICT",
-      });
-      return true;
-    },
-  );
+test("booking service rejects admin, manager and doctor before reading or writing", async () => {
+  const service = new AppointmentsService({} as never);
+  for (const role of [Role.ADMIN, Role.MANAGER, Role.DOCTOR]) {
+    await assert.rejects(() => service.requestAppointment({ patientId: 1, doctorId: 2, calendarId: 3, reason: "Forbidden booking" }, { userId: 4, role }), (error: any) => error.getStatus() === 403);
+  }
 });

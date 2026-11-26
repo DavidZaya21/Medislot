@@ -1,3 +1,4 @@
+import { statusRequestFixture } from "./status-request-fixture";
 import "reflect-metadata";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -22,7 +23,7 @@ test("patient closure: HTTP, preserved history, boundaries, rollback, races, tok
  const user=(role:Role=Role.PATIENT)=>db.user.create({data:{name:"Synthetic "+ ++seq,email:`closure${seq}@example.test`,password:hash,role,phone:role===Role.PATIENT?"+48500100200":null,specialization:role===Role.DOCTOR?"ENT":null}});
  const admin=await user(Role.ADMIN), rec=await user(Role.RECEPTIONIST),mgr=await user(Role.MANAGER),doctor=await user(Role.DOCTOR), patient=await user(),other=await user();
  const token=(u:{id:number;role:Role;authVersion:number})=>jwt.sign({sub:u.id,role:u.role,authVersion:u.authVersion},"closure-test",{expiresIn:"1h"});
- const request=async(method:string,path:string,actor?:typeof patient|string,body?:object)=>{const r=await fetch(base+path,{method,headers:{"Content-Type":"application/json",...(actor?{Authorization:"Bearer "+(typeof actor==="string"?actor:token(actor))}:{})},body:body?JSON.stringify(body):undefined});return{status:r.status,body:await r.json().catch(()=>null)}};
+ const request=async(method:string,path:string,actor?:typeof patient|string,body?:object)=>{body=await statusRequestFixture(db,method,path,body);const r=await fetch(base+path,{method,headers:{"Content-Type":"application/json",...(actor?{Authorization:"Bearer "+(typeof actor==="string"?actor:token(actor))}:{})},body:body?JSON.stringify(body):undefined});return{status:r.status,body:await r.json().catch(()=>null)}};
  const payload=()=>({currentPassword:password,confirmed:true,requestId:randomUUID()});
  const close=(p:typeof patient,b=payload())=>request("POST","/users/me/close",p,b);
  const period=await db.schedulePeriod.create({data:{doctorId:doctor.id,publishedById:admin.id,startDate:new Date("2020-01-01"),endDate:new Date("2040-12-31"),workingWeekdays:[1],dailyStartTime:"00:00",dailyEndTime:"23:59",slotDurationMinutes:30,excludedDates:[],removedSlotIds:[]}});

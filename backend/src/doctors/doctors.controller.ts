@@ -10,6 +10,7 @@ import {
   Query,
   Put,
   UseGuards,
+  ValidationPipe,
 } from "@nestjs/common";
 import { Role } from "@prisma/client";
 
@@ -60,7 +61,7 @@ export class DoctorsController {
   @Roles(Role.ADMIN)
   listAppointmentsByDoctor(
     @Param("doctorId", ParseIntPipe) doctorId: number,
-    @Query() query: AppointmentListQueryDto,
+    @Query(new ValidationPipe({ expectedType: AppointmentListQueryDto, transform: true, whitelist: true })) query: AppointmentListQueryDto,
   ) {
     return this.doctorsService.listAppointmentsByDoctor(doctorId, query.status);
   }

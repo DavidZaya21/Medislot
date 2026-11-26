@@ -1,3 +1,4 @@
+import { statusRequestFixture } from "./status-request-fixture";
 import "reflect-metadata";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -51,6 +52,7 @@ test("transactional rescheduling: eligibility, versions, history and determinist
     return { patient, old, appointment };
   }
   async function request(method: string, path: string, body?: object, actor?: { id: number; role: Role }) {
+    body = await statusRequestFixture(db,method,path,body);
     const res = await fetch(base + path, { method, headers: { "Content-Type": "application/json", ...(actor ? { Authorization: "Bearer " + token(actor) } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(20_000) });
     return { status: res.status, body: await res.json().catch(() => null) };
@@ -78,13 +80,13 @@ test("transactional rescheduling: eligibility, versions, history and determinist
   const aba = await move(first.appointment, target.id, first.patient);
   assert.equal(aba.status, 409); assert.match(aba.body.message, /Reload/); assert.equal(await historyCount(first.appointment.id), 2);
   const changed = await request("PUT", `/appointments/${first.appointment.id}`, { status: "CONFIRMED", reason: first.appointment.reason }, receptionist);
-  assert.equal(changed.status, 200); assert.equal(changed.body.version, 4);
-  assert.equal((await move({ ...first.appointment, version: 3 }, target.id, first.patient)).status, 409);
+  assert.equal(changed.status, 400); assert.equal((await current(first.appointment.id)).version, 3);
+  assert.equal((await move({ ...first.appointment, version: 2 }, target.id, first.patient)).status, 409);
   const third = await move(await current(first.appointment.id), target.id, receptionist);
-  assert.equal(third.status, 200); assert.equal(third.body.version, 5); assert.equal(await historyCount(first.appointment.id), 3);
+  assert.equal(third.status, 200); assert.equal(third.body.version, 4); assert.equal(await historyCount(first.appointment.id), 3);
   assert.equal(third.body.rescheduleCount, 3);
   assert.equal(third.body.historyEntry.actorId, receptionist.id);
-  assert.deepEqual((await db.appointmentRescheduleHistory.findMany({ where: { appointmentId: first.appointment.id }, orderBy: { id: "asc" } })).map(h=>h.appointmentVersion), [2,3,5]);
+  assert.deepEqual((await db.appointmentRescheduleHistory.findMany({ where: { appointmentId: first.appointment.id }, orderBy: { id: "asc" } })).map(h=>h.appointmentVersion), [2,3,4]);
   for (const path of [`/appointments/${first.appointment.id}`, `/users/${first.patient.id}`, `/users/${a.id}`, `/doctors/${a.id}`, `/users/${receptionist.id}`]) {
     assert.equal((await request("DELETE", path, undefined, admin)).status, 409, path);
   }
@@ -92,10 +94,8 @@ test("transactional rescheduling: eligibility, versions, history and determinist
   const compatibility = await request("PUT", `/appointments/${first.appointment.id}`, {
     status: "CONFIRMED", reason: first.appointment.reason, doctorId: b.id, calendarId: first.old.id, version: 999,
   }, receptionist);
-  assert.equal(compatibility.status, 200);
-  assert.equal(compatibility.body.doctorId, beforeCompatibility.doctorId);
-  assert.equal(compatibility.body.calendarId, beforeCompatibility.calendarId);
-  assert.equal(compatibility.body.version, beforeCompatibility.version + 1);
+  assert.equal(compatibility.status, 400);
+  assert.deepEqual(await current(first.appointment.id),beforeCompatibility);
   assert.equal(await historyCount(first.appointment.id), 3);
   const cross = await fixture(); const matching = await slot(b.id, cross.old.startTime.getTime() + 2 * day);
   const crossResult = await move(cross.appointment, matching.id, cross.patient); assert.equal(crossResult.status, 200); assert.equal(crossResult.body.doctorId, b.id);
@@ -245,9 +245,9 @@ test("transactional rescheduling: eligibility, versions, history and determinist
     const moving=()=>move(source.appointment,destination.id,source.patient);
     const deleting=()=>request("DELETE",`/appointments/${source.appointment.id}`,undefined,admin);
     const results=await race(a.id,moveFirst?moving:deleting,moveFirst?deleting:moving,true);
-    assert.deepEqual(results.map(r=>r.status),moveFirst?[200,409]:[200,404]);
-    assert.equal(await historyCount(source.appointment.id),moveFirst?1:0);
-    assert.equal((await db.calendar.findUniqueOrThrow({where:{id:destination.id}})).isBooked,moveFirst);
+    assert.deepEqual(results.map(r=>r.status),moveFirst?[200,409]:[409,200]);
+    assert.equal(await historyCount(source.appointment.id),1);
+    assert.equal((await db.calendar.findUniqueOrThrow({where:{id:destination.id}})).isBooked,true);
   }
   t.diagnostic("Target blocking in both orders, source blocking invalidation, cancellation/deletion races, old-block preservation, history rollback and audit deletion protection passed");
 });

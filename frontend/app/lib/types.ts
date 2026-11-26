@@ -30,7 +30,7 @@ export type CalendarSlot = {
   endTime: string;
   isBooked: boolean;
   isBlocked: boolean;
-  doctor?: Doctor;
+  doctor?: Omit<Doctor, "user"> & { user: Pick<User, "id" | "name"> & Partial<User> };
 };
 
 export type Appointment = {
@@ -41,11 +41,12 @@ export type Appointment = {
   status: AppointmentStatus;
   version: number;
   rescheduleCount?: number;
+  disruption?: { notificationId: number; disruptionVersion: number } | null;
   reason: string;
   slotStartTime?: string;
   slotEndTime?: string;
-  patient?: User;
-  doctor?: Doctor;
+  patient?: Pick<User, "id" | "name" | "closedAt"> & Partial<User>;
+  doctor?: Omit<Doctor, "user"> & { user: Pick<User, "id" | "name"> & Partial<User> };
 };
 
 export type PaginationMeta = {

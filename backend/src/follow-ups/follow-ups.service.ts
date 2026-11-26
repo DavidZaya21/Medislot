@@ -1,3 +1,4 @@
+import { serializeAppointment, disruptionInclude } from "../common/serializers";
 import { Inject, Injectable } from "@nestjs/common";
 import { Prisma, Role, type ContactAttempt } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
@@ -60,6 +61,20 @@ export class FollowUpsService {
         };
       });
       return {data,meta:{page,pageSize,total:count.total,totalPages:Math.ceil(count.total/pageSize)},asOf:now,timeZone:"Europe/Warsaw"};
+    },{isolationLevel:Prisma.TransactionIsolationLevel.RepeatableRead});
+  }
+  // Read-only discovery of genuine legacy cases, not a notification/history backfill.
+  async legacy(query: FollowUpQueryDto, user: AuthUser) {
+    await this.authorize(user);
+    const page=query.page??1,pageSize=query.pageSize??20;
+    return this.db.$transaction(async tx=>{
+      const eligible=Prisma.sql`SELECT a.id FROM "Appointment" a JOIN "User" p ON p.id=a."patientId"
+        WHERE a.status='NEEDS_RESCHEDULING' AND p."closedAt" IS NULL AND NOT EXISTS (
+          SELECT 1 FROM "Notification" n WHERE n."appointmentRef"=a.id AND n."disruptionVersion"=a.version)`;
+      const ids=await tx.$queryRaw<{id:number}[]>(Prisma.sql`SELECT id FROM (${eligible}) legacy ORDER BY id LIMIT ${pageSize} OFFSET ${(page-1)*pageSize}`);
+      const [count]=await tx.$queryRaw<{total:number}[]>(Prisma.sql`SELECT count(*)::int total FROM (${eligible}) legacy`);
+      const rows=await tx.appointment.findMany({where:{id:{in:ids.map(x=>x.id)}},include:{patient:true,doctor:true,calendar:true,notifications:disruptionInclude,_count:{select:{rescheduleHistory:true}}},orderBy:{id:"asc"}});
+      return{data:rows.map(serializeAppointment),meta:{page,pageSize,total:count.total,totalPages:Math.ceil(count.total/pageSize)}};
     },{isolationLevel:Prisma.TransactionIsolationLevel.RepeatableRead});
   }
   // History discovery includes not-yet-escalated active cases and retained resolved/detached cases.

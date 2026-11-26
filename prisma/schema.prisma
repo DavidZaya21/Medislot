@@ -23,6 +23,7 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  statusTransitions AppointmentStatusTransition[] @relation("StatusActor")
   contactAttempts ContactAttempt[] @relation("ContactActor")
   notifications Notification[]
 
@@ -65,6 +66,7 @@ model Appointment {
   patient  User     @relation("PatientAppointments", fields: [patientId], references: [id])
   doctor   User     @relation("DoctorAppointments", fields: [doctorId], references: [id])
   calendar Calendar @relation(fields: [calendarId], references: [id])
+  statusTransitions AppointmentStatusTransition[]
   rescheduleHistory AppointmentRescheduleHistory[]
   notifications Notification[]
 }
@@ -222,4 +224,18 @@ model ContactAttempt {
   createdAt DateTime @default(now())
   @@unique([notificationId, idempotencyKey])
   @@index([notificationId, createdAt, id])
+}
+
+model AppointmentStatusTransition {
+  id Int @id @default(autoincrement())
+  appointmentId Int
+  appointmentVersion Int
+  fromStatus AppointmentStatus
+  toStatus AppointmentStatus
+  actorId Int
+  createdAt DateTime @default(now())
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  actor User @relation("StatusActor", fields: [actorId], references: [id], onDelete: Restrict)
+  @@unique([appointmentId, appointmentVersion], map: "AppointmentStatusTransition_appointment_version_key")
+  @@index([actorId])
 }

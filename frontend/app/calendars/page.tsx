@@ -165,7 +165,9 @@ function CalendarsContent() {
 
   return (
     <>
-      <PageHeader eyebrow={patient ? "Appointments" : "Calendars"} title={patient ? "Book appointment" : "Doctor availability"} />
+      <PageHeader eyebrow={patient ? "Appointments" : "Calendars"} title={patient ? "Book appointment" : "Doctor availability"}>
+        {patient ? <Link className="button button-secondary" href="/doctors">Back to doctors</Link> : null}
+      </PageHeader>
       {patient ? <Link href="/appointments">My appointments</Link> : null}
 
       <section className={`filter-card filter-card-fields with-action${patient ? " patient-booking-filters" : ""}`}>

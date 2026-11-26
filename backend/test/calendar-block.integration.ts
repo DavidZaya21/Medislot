@@ -1,3 +1,4 @@
+import { statusRequestFixture } from "./status-request-fixture";
 import "reflect-metadata";
 
 import assert from "node:assert/strict";
@@ -74,6 +75,7 @@ test("blocking preserves records and serializes appointment mutations", async (t
       schedulePeriodId: published ? period.id : null } });
   }
   async function request(method: string, path: string, body?: object, token = adminToken) {
+    body = await statusRequestFixture(prisma,method,path,body);
     const response = await fetch(baseUrl + path, { method,
       headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15_000),
@@ -146,11 +148,11 @@ test("blocking preserves records and serializes appointment mutations", async (t
   const old = await post("/appointments", bookingInput(reused.id), patientToken);
   assert.equal((await request("PUT", "/appointments/" + old.body.id, { status: "CANCELLED", reason: "Patient cancelled" })).status, 200);
   const newer = await post("/appointments", bookingInput(reused.id), patientToken); assert.equal(newer.status, 201);
-  assert.equal((await request("DELETE", "/appointments/" + old.body.id)).status, 200);
+  assert.equal((await request("DELETE", "/appointments/" + old.body.id)).status, 409);
   assert.equal((await prisma.calendar.findUniqueOrThrow({ where: { id: reused.id } })).isBooked, true);
   // Legacy duplicate active reservations must also survive release of another.
   const duplicate = await prisma.appointment.create({ data: bookingInput(reused.id) });
-  assert.equal((await request("DELETE", "/appointments/" + newer.body.id)).status, 200);
+  assert.equal((await request("PUT", "/appointments/" + newer.body.id, {status:"CANCELLED"})).status, 200);
   assert.equal((await prisma.calendar.findUniqueOrThrow({ where: { id: reused.id } })).isBooked, true);
   assert.ok(await prisma.appointment.findUnique({ where: { id: duplicate.id } }));
 

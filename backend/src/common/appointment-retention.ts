@@ -7,7 +7,13 @@ import { toConflict } from "./prisma-errors";
 export async function assertAppointmentDeletionAllowed(
   tx: Prisma.TransactionClient, scope: Prisma.AppointmentWhereInput,
 ) {
-  if (await tx.appointment.findFirst({ where: { AND: [scope, { patient: { closedAt: { not: null } } }] }, select: { id: true } })) {
-    throw toConflict("Closed patient history must be retained");
+  if (await tx.appointment.findFirst({ where: { ...scope }, select: { id: true } })) {
+    throw toConflict("Appointments must be retained. Cancel eligible appointments instead of deleting them");
+  }
+}
+
+export async function assertAuditActorDeletionAllowed(tx: Prisma.TransactionClient, actorId: number) {
+  if (await tx.appointmentStatusTransition.findFirst({ where: { actorId }, select: { id: true } })) {
+    throw toConflict("Account is referenced by preserved appointment status history");
   }
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Notice } from "./AppShell";
-import { apiRequest, type ApiError } from "../lib/api";
+import { apiRequest, getStoredAuth, type ApiError } from "../lib/api";
 import { clinicDate, clinicDateTime, CLINIC_TIME_NOTICE } from "../lib/clinicTime";
 import { specializationLabel } from "../lib/specializations";
 import { useClinicTimeNotice } from "../lib/useClinicTimeNotice";
@@ -52,6 +52,8 @@ export function RescheduleAppointment({ appointment, auth, onClose, onSuccess, o
   const [info, setInfo] = useState("");
   const inFlight = useRef(false);
   const request = useRef(0);
+  const sessionGeneration = useRef(0);
+  useEffect(() => { const id=++sessionGeneration.current; return () => { if(sessionGeneration.current===id) sessionGeneration.current++; }; }, [auth.token,auth.sessionId,auth.userId]);
   const showClinicNotice = useClinicTimeNotice();
 
   function handleFailure(caught: unknown) {
@@ -127,14 +129,18 @@ export function RescheduleAppointment({ appointment, auth, onClose, onSuccess, o
 
   async function confirm() {
     if (!confirmation || inFlight.current || reloadRequired || loading) return;
+    const id=sessionGeneration.current;
+    const current=()=>{const stored=getStoredAuth();return sessionGeneration.current===id&&stored?.token===auth.token&&stored.userId===auth.userId&&stored.sessionId===auth.sessionId};
+    if(!current())return;
     inFlight.current = true; setPending(true); onPendingChange?.(true); setError(""); setInfo("");
     try {
       const moved = await apiRequest<Appointment>(`/appointments/${original.id}/reschedule`, {
         method: "POST", token: auth.token,
         body: { currentCalendarId: original.calendarId, newCalendarId: confirmation.id, expectedVersion: original.version },
       });
-      onSuccess(moved);
+      if(current()) onSuccess(moved);
     } catch (caught) {
+      if(!current())return;
       const message = caught instanceof Error ? caught.message : "Could not reschedule appointment";
       const status = (caught as ApiError)?.status;
       setConfirmation(null); setSelected("");
@@ -144,7 +150,7 @@ export function RescheduleAppointment({ appointment, auth, onClose, onSuccess, o
       } else {
         handleFailure(caught);
       }
-    } finally { inFlight.current = false; setPending(false); onPendingChange?.(false); }
+    } finally { if(current()) { inFlight.current = false; setPending(false); onPendingChange?.(false); } }
   }
 
   const orderedDoctors = [...doctorChoices].sort(([a], [b]) => Number(b === original.doctorId) - Number(a === original.doctorId));

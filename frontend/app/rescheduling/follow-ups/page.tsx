@@ -1,12 +1,15 @@
 "use client";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { AppShell, RequireAuth, PageHeader, Notice } from "../../components/AppShell";
+import { LegacyDisruptions } from "../../components/LegacyDisruptions";
+import { AppointmentStatusActions } from "../../components/AppointmentStatusActions";
 import { FollowUpCaseBrowser } from "../../components/FollowUpCaseBrowser";
 import { RescheduleAppointment } from "../../components/RescheduleAppointment";
 import { apiRequest, buildQuery, type ApiError } from "../../lib/api";
 import type { Appointment, PaginationMeta } from "../../lib/types";
 import { clinicDateTime, CLINIC_TIME_NOTICE } from "../../lib/clinicTime";
 import { useClinicTimeNotice } from "../../lib/useClinicTimeNotice";
+import { useAppointmentOperations } from "../../lib/useAppointmentOperations";
 import { useAuth } from "../../lib/useAuth";
 
 type Attempt={id:number;actorId:number|null;actorRef:number;createdAt:string;outcome:string;note:string|null};
@@ -21,6 +24,7 @@ const errorText=(e:unknown)=> e instanceof Error?e.message:"Request failed";
 export default function FollowUpPage(){return <AppShell><RequireAuth roles={["RECEPTIONIST","MANAGER","ADMIN"]}><Queue /></RequireAuth></AppShell>}
 function Queue(){
  const {auth,role}=useAuth(),zoneNotice=useClinicTimeNotice();
+ const statusOperations=useAppointmentOperations(auth);
  const [rows,setRows]=useState<Case[]>([]),[page,setPage]=useState(1),[pages,setPages]=useState(0),[refresh,setRefresh]=useState(0),[loading,setLoading]=useState(false);
  const [error,setError]=useState(""),[message,setMessage]=useState(""),[reloadRequired,setReloadRequired]=useState(false),[pending,setPending]=useState(false);
  const revision=useRef(0),inFlight=useRef(false),keys=useRef(new Map<number,string>());
@@ -29,6 +33,12 @@ function Queue(){
  const historyRevision=useRef(0);
  const moveInFlight=useRef(false),[movePending,setMovePending]=useState(false);
  const busy=pending||movePending;
+ function statusPendingChanged(value:boolean,id:string,allowRefresh=true){
+   if(value){if(inFlight.current||moveInFlight.current||!statusOperations.begin(id,"status"))return false;inFlight.current=true;setPending(true);return true}
+   if(statusOperations.finish(id,allowRefresh)){inFlight.current=false;setPending(false)}
+ }
+
+ useEffect(()=>{inFlight.current=false;moveInFlight.current=false;setPending(false);setMovePending(false);setCancel(null);setMoving(null);setMessage("");setError("");setReloadRequired(false);setHistoryId(null);keys.current.clear()},[auth?.token,auth?.sessionId]);
  function movePendingChanged(value:boolean){moveInFlight.current=value;setMovePending(value)}
  function invalidate(){revision.current++;setRows([]);setLoading(true)}
  function reload(){if(moveInFlight.current)return;invalidate();setReloadRequired(false);setMoving(null);setCancel(null);keys.current.clear();setRefresh(n=>n+1);setHistoryRefresh(n=>n+1)}
@@ -64,13 +74,6 @@ function Queue(){
    setMessage("Contact recorded. The disruption remains open.");keys.current.delete(row.notificationId);openHistory(row.notificationId);reload();
   }catch(e){fail(e)}finally{inFlight.current=false;setPending(false)}
  }
- async function cancelAppointment(){
-  if(!auth||!cancel||inFlight.current||moveInFlight.current||reloadRequired)return;inFlight.current=true;setPending(true);setError("");const {row,appointment}=cancel;
-  try{await apiRequest(`/appointments/${row.appointmentId}`,{method:"PUT",token:auth.token,body:{status:"CANCELLED",reason:appointment.reason,
-   notificationId:row.notificationId,disruptionVersion:row.disruptionVersion,currentCalendarId:row.currentCalendarId,expectedVersion:row.expectedVersion}});
-   setMessage("Appointment cancelled. Contact history is retained.");openHistory(row.notificationId);reload();
-  }catch(e){fail(e)}finally{inFlight.current=false;setPending(false)}
- }
  return <><PageHeader eyebrow="Reception" title="Rescheduling follow-up" />
   <div className="row-actions"><button className="button button-secondary" disabled={busy||loading} onClick={reload}>Refresh queue</button></div>
   {zoneNotice?<Notice message={CLINIC_TIME_NOTICE}/>:null}{error?<Notice message={error} tone="error"/>:null}{message?<Notice message={message}/>:null}
@@ -94,7 +97,12 @@ function Queue(){
   {!loading&&!error&&!rows.length?<section className="form-card"><p>No escalated disruptions.</p></section>:null}
   {!loading&&pages>1?<nav className="row-actions" aria-label="Follow-up pagination"><button disabled={page<=1||busy} onClick={()=>{if(moveInFlight.current)return;invalidate();setPage(n=>n-1)}}>Previous</button><span>Page {page} of {pages}</span><button disabled={page>=pages||busy} onClick={()=>{if(moveInFlight.current)return;invalidate();setPage(n=>n+1)}}>Next</button></nav>:null}
   {moving&&auth?<RescheduleAppointment appointment={moving} auth={auth} onPendingChange={movePendingChanged} onClose={()=>{if(!moveInFlight.current)setMoving(null)}} onSuccess={()=>{movePendingChanged(false);setMessage("Appointment rescheduled.");const row=rows.find(r=>r.appointmentId===moving.id);if(row)openHistory(row.notificationId);reload()}}/>:null}
-  {cancel?<section className="form-card" aria-label="Confirm disrupted cancellation"><h2>Cancel this appointment?</h2><p>{cancel.row.patient.name} · {cancel.row.doctorName} · {clinicDateTime(cancel.row.slotStartTime)}</p><button className="button button-danger" disabled={busy||reloadRequired} onClick={cancelAppointment}>Confirm cancellation</button><button className="button button-secondary" disabled={busy} onClick={()=>{if(!moveInFlight.current)setCancel(null)}}>Keep appointment</button></section>:null}
+  {cancel && auth ? <section aria-label="Confirm disrupted cancellation"><AppointmentStatusActions
+    key={`${cancel.appointment.id}:${auth.sessionId ?? auth.token}`} auth={auth}
+    appointment={{...cancel.appointment,disruption:{notificationId:cancel.row.notificationId,disruptionVersion:cancel.row.disruptionVersion}}}
+    initialAction="CANCELLED" onStale={()=>setReloadRequired(true)} onPendingChange={statusPendingChanged}
+    onClose={()=>setCancel(null)} onChanged={changed=>{setMessage(changed ? "Appointment cancelled. Contact history is retained." : "Queue reloaded. Choose and confirm a fresh action.");openHistory(cancel.row.notificationId);reload()}} /></section> : null}
+  {auth?<LegacyDisruptions auth={auth} disabled={busy} refresh={refresh} onPendingChange={statusPendingChanged}/>:null}
   {auth?<FollowUpCaseBrowser auth={auth} disabled={busy} refresh={refresh} selectedId={historyId} onSelect={openHistory}/>:null}
   {historyId!==null?<section className="form-card" aria-label="Contact history"><h2>Contact history · Case #{historyId}</h2>{historyError?<Notice message={historyError} tone="error"/>:!history?<p>Loading history…</p>:<>
    <p>{history.case.resolvedAt?"Resolved":"Unresolved"}</p>{history.data.length?history.data.map(attempt=><article key={attempt.id}><p>{label(attempt.outcome)} · {clinicDateTime(attempt.createdAt)} · {attempt.actorId===null?"Deleted staff":"Staff"} #{attempt.actorRef}</p>{attempt.note?<p>{attempt.note}</p>:null}</article>):<p>No contact attempts for this case.</p>}

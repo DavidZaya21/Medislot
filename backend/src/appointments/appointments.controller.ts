@@ -37,13 +37,13 @@ export class AppointmentsController {
   ) {}
 
   @Get()
-  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR)
-  listAppointments(@Query() query: AppointmentListQueryDto) {
-    return this.appointmentsService.listAppointments(query.status);
+  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR, Role.MANAGER)
+  listAppointments(@Query(new ValidationPipe({ expectedType: AppointmentListQueryDto, transform: true, whitelist: true })) query: AppointmentListQueryDto, @CurrentUser() user: AuthUser) {
+    return this.appointmentsService.listAppointments(query.status, user);
   }
 
   @Post()
-  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.PATIENT)
+  @Roles(Role.RECEPTIONIST, Role.PATIENT)
   requestAppointment(
     @Body() body: CreateAppointmentDto,
     @CurrentUser() currentUser: AuthUser,
@@ -90,13 +90,13 @@ export class AppointmentsController {
   }
 
   @Put(":appointmentId")
-  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR, Role.MANAGER)
+  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR, Role.MANAGER, Role.PATIENT)
   reviewAppointment(
     @Param("appointmentId", ParseIntPipe) appointmentId: number,
     @Body(new ValidationPipe({expectedType:UpdateAppointmentDto,transform:true,whitelist:true})) body: UpdateAppointmentDto,
-    @CurrentUser() user?: AuthUser,
+    @CurrentUser() user: AuthUser,
   ) {
-    return user ? this.appointmentsService.reviewAppointment(appointmentId, body, user) : this.appointmentsService.reviewAppointment(appointmentId, body);
+    return this.appointmentsService.reviewAppointment(appointmentId, body, user);
   }
 
   @Delete(":appointmentId")

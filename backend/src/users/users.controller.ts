@@ -88,7 +88,7 @@ export class UsersController {
   @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.PATIENT)
   listAppointmentsByUser(
     @Param("userId", ParseIntPipe) userId: number,
-    @Query() query: AppointmentListQueryDto,
+    @Query(new ValidationPipe({ expectedType: AppointmentListQueryDto, transform: true, whitelist: true })) query: AppointmentListQueryDto,
     @CurrentUser() currentUser: AuthUser,
   ) {
     return this.usersService.listAppointmentsByUser(userId, query.status, currentUser);

@@ -1,4 +1,6 @@
-import { assertAppointmentDeletionAllowed } from "../common/appointment-retention";
+import { disruptionInclude } from "../common/serializers";
+import { AppointmentLifecycle } from "../common/appointment-lifecycle";
+import { assertAppointmentDeletionAllowed, assertAuditActorDeletionAllowed } from "../common/appointment-retention";
 import { Inject, Injectable } from "@nestjs/common";
 import bcrypt from "bcrypt";
 import { randomUUID } from "node:crypto";
@@ -16,7 +18,8 @@ import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
 export class UsersService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(AppointmentLifecycle) private readonly lifecycle: AppointmentLifecycle = new AppointmentLifecycle()) {}
 
   async closePatientAccount(userId: number, input: ClosePatientAccountDto) {
     return this.prisma.$transaction(async tx => {
@@ -33,11 +36,12 @@ export class UsersService {
         throw toUnauthorized("Current password is incorrect");
       }
       // Database time is evaluated after lock waits, rather than transaction-start time.
-      const [{ now }] = await tx.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`;
+      const now = this.lifecycle.now();
       const appointments = await tx.appointment.findMany({ where: { patientId: userId,
         OR: [{ status: "NEEDS_RESCHEDULING" }, { status: "CONFIRMED", calendar: { startTime: { gt: now } } }] }, orderBy: { id: "asc" } });
       for (const appointment of appointments) {
-        await tx.appointment.update({ where: { id: appointment.id }, data: { status: "CANCELLED", version: { increment: 1 } } });
+        const updated = await tx.appointment.update({ where: { id: appointment.id }, data: { status: "CANCELLED", version: { increment: 1 } } });
+        await this.lifecycle.record(tx, updated, appointment.status, "CANCELLED", userId, now);
         await resolveDisruption(tx, appointment.id);
         await releaseReservation(tx, appointment.calendarId);
       }
@@ -160,6 +164,7 @@ export class UsersService {
       const current = await tx.user.findUnique({ where: { id: userId } });
       if (!current) throw toNotFound("User");
       if (current.role === Role.PATIENT) throw toConflict("Patient accounts must be closed, not deleted");
+      await assertAuditActorDeletionAllowed(tx, userId);
       if (await tx.appointmentRescheduleHistory.findFirst({ where: { OR: [
         { actorId: userId }, { previousDoctorId: userId }, { newDoctorId: userId },
         { appointment: { is: { patientId: userId } } },
@@ -191,6 +196,7 @@ export class UsersService {
         ...(status ? { status } : {}),
       },
       include: {
+        notifications: disruptionInclude,
         patient: true,
         doctor: true,
         calendar: true,

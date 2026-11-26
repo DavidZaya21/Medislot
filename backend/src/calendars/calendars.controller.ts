@@ -40,8 +40,8 @@ export class CalendarsController {
 
   @Post("block")
   @Roles(Role.ADMIN, Role.MANAGER)
-  block(@Body(new ValidationPipe({ expectedType: BlockCalendarDto, transform: true, whitelist: true })) body: BlockCalendarDto) {
-    return this.calendarsService.block(body);
+  block(@Body(new ValidationPipe({ expectedType: BlockCalendarDto, transform: true, whitelist: true })) body: BlockCalendarDto, @CurrentUser() user: AuthUser) {
+    return this.calendarsService.block(body, user);
   }
 
   @Post()

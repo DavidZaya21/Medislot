@@ -1,3 +1,4 @@
+import { AppointmentLifecycle } from "../common/appointment-lifecycle";
 import { Prisma, Role } from "@prisma/client";
 import { Inject, Injectable } from "@nestjs/common";
 
@@ -5,7 +6,7 @@ import { toBadRequest, toConflict, toNotFound, toForbidden } from "../common/pri
 import { followUpDeadline } from "../follow-ups/follow-up-policy";
 import { lockDoctor } from "../common/doctor-lock";
 import { addClinicDays, warsawInstant } from "../common/clinic-time";
-import { serializeCalendar } from "../common/serializers";
+import { serializeCalendar, serializeManagerCalendar } from "../common/serializers";
 import type { AuthUser } from "../auth/auth.types";
 import { recommendationWindow, rankBookingAlternatives } from "../common/rescheduling-recommendations";
 import { replacementEligibilityError, intervalsOverlap } from "../common/rescheduling-policy";
@@ -13,7 +14,8 @@ import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
 export class CalendarsService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(AppointmentLifecycle) private readonly lifecycle: AppointmentLifecycle = new AppointmentLifecycle()) {}
 
   async listCalendarSlots(query: { doctorId?: number; date?: string; isBooked?: boolean }, user: AuthUser) {
     const where: Prisma.CalendarWhereInput = {};
@@ -40,7 +42,7 @@ export class CalendarsService {
     }
     if (patient || query.date) where.startTime = startTime;
     const slots = await this.prisma.calendar.findMany({ where, include: { doctor: true }, orderBy: { startTime: "asc" } });
-    return { data: slots.map(serializeCalendar) };
+    return { data: slots.map(slot => user.role === Role.MANAGER ? serializeManagerCalendar(slot) : serializeCalendar(slot)) };
   }
 
   async alternatives(calendarId: number, suppliedPatientId: number | undefined, user: AuthUser) {
@@ -74,21 +76,24 @@ export class CalendarsService {
     };
   }
 
-  async block(input: { doctorId: number; startTime: string; endTime: string }) {
+  async block(input: { doctorId: number; startTime: string; endTime: string }, user: AuthUser) {
     const startTime = new Date(input.startTime);
     const endTime = new Date(input.endTime);
     this.ensureTimeOrder(startTime, endTime);
     return this.prisma.$transaction(async (tx) => {
       await lockDoctor(tx, input.doctorId);
-      const [{ recordedAt }] = await tx.$queryRaw<{ recordedAt: Date }[]>(Prisma.sql`SELECT clock_timestamp() AS "recordedAt"`);
+      const actor = await tx.user.findUnique({ where: { id: user.userId } });
+      if (!actor || actor.closedAt || actor.role !== user.role || ![Role.ADMIN, Role.MANAGER].includes(actor.role as "ADMIN"|"MANAGER")) throw toForbidden();
+      const recordedAt = this.lifecycle.now();
       const where = { doctorId: input.doctorId, schedulePeriodId: { not: null },
-        startTime: { lt: endTime }, endTime: { gt: startTime } };
+        startTime: { lt: endTime, gt: recordedAt }, endTime: { gt: startTime } };
       const blocked = await tx.calendar.updateMany({ where: { ...where, isBlocked: false }, data: { isBlocked: true } });
       const affected = await tx.appointment.updateManyAndReturn({
         where: { status: "CONFIRMED", patient: { closedAt: null }, calendar: { is: where } },
         data: { status: "NEEDS_RESCHEDULING", version: { increment: 1 } },
         include: { doctor: { select: { name: true } }, calendar: { select: { startTime: true, endTime: true } } },
       });
+      for (const appointment of affected) await this.lifecycle.record(tx, appointment, "CONFIRMED", "NEEDS_RESCHEDULING", user.userId, recordedAt);
       if (affected.length) {
         const notices = await tx.notification.createManyAndReturn({ data: affected.sort((a, b) => a.id - b.id).map(appointment => ({
           recipientId: appointment.patientId, appointmentId: appointment.id, appointmentRef: appointment.id,
@@ -150,7 +155,7 @@ export class CalendarsService {
       include: { doctor: true },
     });
     if (!slot) throw toNotFound("Calendar slot");
-    return serializeCalendar(slot);
+    return user.role === Role.MANAGER ? serializeManagerCalendar(slot) : serializeCalendar(slot);
   }
 
   async updateCalendarSlotById(

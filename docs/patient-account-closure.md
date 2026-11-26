@@ -32,8 +32,8 @@ across tabs (plus a same-tab event for all auth-hook instances).
 
 One Read Committed transaction locks existing doctor rows in ascending ID order,
 then the patient row, matching the established rare administrative deletion order.
-Mutable patient state/password is rechecked under the lock. `clock_timestamp()`
-after lock waits establishes the boundary:
+Mutable patient state/password is rechecked under the lock. The shared server clock
+read after lock waits establishes the boundary:
 
 - CONFIRMED with start > now: CANCELLED, version incremented.
 - CONFIRMED with start <= now < end: completely unchanged.
@@ -147,3 +147,5 @@ All write tests use disposable PostgreSQL and synthetic Mailpit. No Supabase acc
 real emails or deployment is part of this evidence. Retention and external-email
 limitations above are unchanged; these checks do not prove every possible process
 or browser interleaving.
+
+The [appointment lifecycle](appointment-lifecycle.md) now allows authorized staff outcomes for retained closed-patient visits, records closure status audits atomically, and protects all appointments/status audit actors from deletion. These rules supersede earlier appointment-deletion behavior described above.

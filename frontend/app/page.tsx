@@ -72,7 +72,10 @@ function Dashboard() {
 
   useEffect(() => {
     if (role === "PATIENT") router.replace("/doctors");
+    if (role === "ADMIN" || role === "MANAGER" || role === "RECEPTIONIST") router.replace("/appointments");
   }, [role, router]);
+
+  if (role === "ADMIN" || role === "MANAGER" || role === "RECEPTIONIST" || role === "PATIENT") return null;
 
   return (
     <>

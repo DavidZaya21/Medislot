@@ -1,3 +1,4 @@
+import { statusRequestFixture } from "./status-request-fixture";
 import "reflect-metadata";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -21,7 +22,7 @@ test("reception follow-up: timing, contacts, role matrix, races, privacy and ret
  const admin=await user(Role.ADMIN),rec=await user(Role.RECEPTIONIST),manager=await user(Role.MANAGER),doctor=await user(Role.DOCTOR),patient=await user(Role.PATIENT,"+48500100200"),other=await user(Role.PATIENT);
  const period=await db.schedulePeriod.create({data:{doctorId:doctor.id,publishedById:admin.id,startDate:new Date("2020-01-01"),endDate:new Date("2035-12-31"),workingWeekdays:[1,2,3,4,5,6,7],dailyStartTime:"00:00",dailyEndTime:"23:59",slotDurationMinutes:30,excludedDates:[],removedSlotIds:[]}});
  type Actor={id:number;role:Role};const headers=(actor?:Actor)=>({"Content-Type":"application/json",...(actor?{Authorization:"Bearer "+jwt.sign({ authVersion: 1, sub:actor.id,role:actor.role},"followup-test")}:{})});
- const request=async(method:string,path:string,actor?:Actor,body?:object)=>{const r=await fetch(base+path,{method,headers:headers(actor),body:body?JSON.stringify(body):undefined});return{status:r.status,body:await r.json().catch(()=>null)}};
+ const request=async(method:string,path:string,actor?:Actor,body?:object)=>{body=await statusRequestFixture(db,method,path,body);const r=await fetch(base+path,{method,headers:headers(actor),body:body?JSON.stringify(body):undefined});return{status:r.status,body:await r.json().catch(()=>null)}};
  let day=0;
  const slot=async(start=new Date(Date.parse("2030-01-07T10:00Z")+day++*86400000))=>db.calendar.create({data:{doctorId:doctor.id,startTime:start,endTime:new Date(+start+1800000),schedulePeriodId:period.id}});
  async function fixture(owner=patient,start?:Date){const calendar=await slot(start);const a=await db.appointment.create({data:{doctorId:doctor.id,patientId:owner.id,calendarId:calendar.id,reason:"PRIVATE VISIT REASON"}});await db.calendar.update({where:{id:calendar.id},data:{isBooked:true}});assert.equal((await request("POST","/calendars/block",manager,{doctorId:doctor.id,startTime:calendar.startTime.toISOString(),endTime:calendar.endTime.toISOString()})).status,201);const notice=await db.notification.findFirstOrThrow({where:{appointmentId:a.id}});return{calendar,a,notice,identity:{notificationId:notice.id,disruptionVersion:2,currentCalendarId:calendar.id,expectedVersion:2}};}
@@ -52,7 +53,7 @@ test("reception follow-up: timing, contacts, role matrix, races, privacy and ret
  assert.equal((await request("GET","/rescheduling/followUps",rec)).body.data.find((r:{notificationId:number})=>r.notificationId===f.notice.id).patient.phone,"+442079460018");
  // Manager can recover disrupted visits but cannot move a confirmed appointment or read it afterward.
  const replacement=await slot();const moved=await request("POST",`/appointments/${f.a.id}/reschedule`,manager,{currentCalendarId:f.calendar.id,newCalendarId:replacement.id,expectedVersion:2});assert.equal(moved.status,200);assert.equal(moved.body.historyEntry.actorId,manager.id);
- assert.equal((await request("GET",`/appointments/${f.a.id}`,manager)).status,403);assert.equal((await request("POST",`/appointments/${f.a.id}/reschedule`,manager,{currentCalendarId:replacement.id,newCalendarId:(await slot()).id,expectedVersion:3})).status,403);
+ assert.equal((await request("GET",`/appointments/${f.a.id}`,manager)).status,200);assert.equal((await request("POST",`/appointments/${f.a.id}/reschedule`,manager,{currentCalendarId:replacement.id,newCalendarId:(await slot()).id,expectedVersion:3})).status,403);
  assert.equal((await request("POST",`/appointments/${f.a.id}/contactAttempts`,rec,{...payload,idempotencyKey:randomUUID()})).status,409);
  assert.equal((await request("POST",`/appointments/${f.a.id}/contactAttempts`,rec,payload)).body.id,contacts[0].body.id);
  assert.equal((await request("PUT",`/appointments/${f.a.id}`,manager,{status:"CANCELLED",reason:"PRIVATE VISIT REASON",...f.identity})).status,409);
@@ -76,7 +77,7 @@ test("reception follow-up: timing, contacts, role matrix, races, privacy and ret
  assert.equal((await request("POST",`/appointments/${g.a.id}/contactAttempts`,manager,{...contact,outcome:"BUSY",idempotencyKey:randomUUID()})).status,201);
  assert.equal((await request("DELETE",`/users/${dedicated.id}`,admin)).status,200);assert.equal((await db.contactAttempt.findFirstOrThrow({where:{notificationId:g.notice.id,actorRef:dedicated.id}})).actorId,null);
  assert.equal((await request("PUT",`/appointments/${g.a.id}`,rec,{...g.identity,status:"CANCELLED",reason:"PRIVATE VISIT REASON"})).status,200);
- assert.equal((await request("DELETE",`/appointments/${g.a.id}`,admin)).status,200);assert.equal((await db.notification.findUniqueOrThrow({where:{id:g.notice.id}})).appointmentId,null);assert.equal((await request("GET",`/rescheduling/followUps/${g.notice.id}/contactAttempts`,admin)).body.meta.total,2);
+ assert.equal((await request("DELETE",`/appointments/${g.a.id}`,admin)).status,409);assert.equal((await db.notification.findUniqueOrThrow({where:{id:g.notice.id}})).appointmentId,g.a.id);assert.equal((await request("GET",`/rescheduling/followUps/${g.notice.id}/contactAttempts`,admin)).body.meta.total,2);
  // Replays survive appointment/patient/doctor detachment and perform no logical writes.
  const replayPayload={...contact,outcome:"BUSY",idempotencyKey:randomUUID()};
  const replayPatient=await user(Role.PATIENT,"+48500100200"),replayFixture=await fixture(replayPatient),replayBody={...replayPayload,...replayFixture.identity};

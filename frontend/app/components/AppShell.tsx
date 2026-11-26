@@ -6,6 +6,7 @@ import { useEffect, type ReactNode } from "react";
 
 import { returnDestination } from "../lib/returnDestination";
 import { useAuth } from "../lib/useAuth";
+import { NavigationMenu } from "./NavigationMenu";
 import type { Role } from "../lib/types";
 
 type NavItem = {
@@ -19,11 +20,11 @@ const navItems: NavItem[] = [
   { href: "/notifications", label: "Inbox", roles: ["PATIENT"] },
   { href: "/doctor-unavailability", label: "Doctor unavailability", roles: ["ADMIN", "MANAGER"] },
   { href: "/schedule-generation", label: "Generate schedule", roles: ["ADMIN", "MANAGER"] },
-  { href: "/", label: "Home", roles: ["ADMIN", "RECEPTIONIST", "DOCTOR"] },
+  { href: "/", label: "Home", roles: ["DOCTOR"] },
   { href: "/users", label: "Users", roles: ["ADMIN"] },
   { href: "/doctors", label: "Doctors", roles: ["ADMIN", "DOCTOR", "PATIENT"] },
   { href: "/receptionists", label: "Receptionists", roles: ["ADMIN"] },
-  { href: "/calendars", label: "Schedule", roles: ["ADMIN", "DOCTOR", "PATIENT"] },
+  { href: "/calendars", label: "Schedule", roles: ["ADMIN", "DOCTOR"] },
   { href: "/managers", label: "Managers", roles: ["ADMIN"] },
   { href: "/appointments", label: "Appointments", roles: ["ADMIN", "RECEPTIONIST", "DOCTOR", "PATIENT"] },
   { href: "/profile", label: "Profile", roles: ["ADMIN", "RECEPTIONIST", "DOCTOR", "PATIENT"] },
@@ -49,13 +50,19 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {auth ? (
           <nav className="nav-list" aria-label="Main navigation">
-            {visibleItems.map((item) => (
+            {role === "ADMIN" || role === "MANAGER" || role === "RECEPTIONIST" ? <>
+            <Link className={pathname === "/appointments" ? "nav-link active" : "nav-link"} aria-current={pathname === "/appointments" ? "page" : undefined} href="/appointments">Appointments</Link>
+            {role !== "RECEPTIONIST" ? <NavigationMenu label="Scheduling" items={[{label: "Schedule", href: "/calendars"}, {label: "Generate schedule", href: "/schedule-generation"}, {label: "Doctor unavailability", href: "/doctor-unavailability"}]} /> : null}
+            <Link className={pathname === "/rescheduling/follow-ups" ? "nav-link active" : "nav-link"} aria-current={pathname === "/rescheduling/follow-ups" ? "page" : undefined} href="/rescheduling/follow-ups">Follow-up</Link>
+            {role === "ADMIN" ? <NavigationMenu label="People" items={[{label: "Users", href: "/users"}, {label: "Doctors", href: "/doctors"}, {label: "Receptionists", href: "/receptionists"}, {label: "Managers", href: "/managers"}]} /> : null}
+            </> : visibleItems.map((item) => (
               <Link
                 className={pathname === item.href ? "nav-link active" : "nav-link"}
                 href={item.href}
+                aria-current={pathname === item.href ? "page" : undefined}
                 key={item.href}
               >
-                {role === "PATIENT" && item.href === "/calendars" ? "Book appointment" : role === "PATIENT" && item.href === "/appointments" ? "My appointments" : item.label}
+                {role === "PATIENT" && item.href === "/appointments" ? "My appointments" : item.label}
               </Link>
             ))}
           </nav>
@@ -82,7 +89,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <strong>{profile?.name ?? "Signed in"}</strong>
                 <small>{profile?.email ?? `User #${auth.userId}`}</small>
               </span>
-              <button
+              {role === "ADMIN" || role === "MANAGER" || role === "RECEPTIONIST" ? <NavigationMenu label="Account" items={[{ label: "Profile", href: "/profile" }, { label: "Logout", action: () => { logout(); router.push("/login"); } }]} /> : <button
                 className="button button-secondary"
                 onClick={() => {
                   logout();
@@ -91,7 +98,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 type="button"
               >
                 Logout
-              </button>
+              </button>}
             </>
           ) : (
             <Link className="button button-primary" href="/login">

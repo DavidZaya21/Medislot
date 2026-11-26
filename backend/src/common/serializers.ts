@@ -40,9 +40,12 @@ export function serializeAppointment(
     doctor: User;
     calendar: Calendar;
     _count?: { rescheduleHistory: number };
+    notifications?: { id: number; disruptionVersion: number; calendarRef: number }[];
   },
 ) {
+  const notice = appointment.status === "NEEDS_RESCHEDULING" ? appointment.notifications?.find(n => n.disruptionVersion === appointment.version && n.calendarRef === appointment.calendarId) : undefined;
   return {
+    disruption: notice ? { notificationId: notice.id, disruptionVersion: notice.disruptionVersion } : null,
     id: appointment.id,
     patientId: appointment.patientId,
     doctorId: appointment.doctorId,
@@ -56,4 +59,24 @@ export function serializeAppointment(
     patient: serializeUser(appointment.patient),
     doctor: serializeDoctor(appointment.doctor),
   };
+}
+
+export const disruptionInclude = { where: { resolvedAt: null }, select: { id: true, disruptionVersion: true, calendarRef: true } } as const;
+
+// Manager appointment browsing needs identities and lifecycle context, not profiles.
+export function serializeManagerAppointment(appointment: Parameters<typeof serializeAppointment>[0]) {
+  return {
+    ...serializeAppointment(appointment),
+    patient: { id: appointment.patient.id, name: appointment.patient.name, closedAt: appointment.patient.closedAt ?? null },
+    doctor: { id: appointment.doctor.id, userId: appointment.doctor.id,
+      specialization: appointment.doctor.specialization ?? null,
+      user: { id: appointment.doctor.id, name: appointment.doctor.name } },
+  };
+}
+
+export function serializeManagerCalendar(calendar: Parameters<typeof serializeCalendar>[0]) {
+  return { ...serializeCalendar(calendar), ...(calendar.doctor ? { doctor: {
+    id: calendar.doctor.id, userId: calendar.doctor.id, specialization: calendar.doctor.specialization ?? null,
+    user: { id: calendar.doctor.id, name: calendar.doctor.name },
+  } } : {}) };
 }

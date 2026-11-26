@@ -13,6 +13,8 @@ export class FollowUpsController {
  constructor(@Inject(FollowUpsService) private readonly service:FollowUpsService){}
  @Get("rescheduling/followUps") @Roles(Role.RECEPTIONIST,Role.MANAGER,Role.ADMIN)
  list(@Query(new ValidationPipe({expectedType:FollowUpQueryDto,transform:true,whitelist:true})) query:FollowUpQueryDto,@CurrentUser() user:AuthUser){return this.service.list(query,user)}
+ @Get("rescheduling/followUps/legacyAppointments") @Roles(Role.RECEPTIONIST,Role.MANAGER,Role.ADMIN)
+ legacy(@Query(new ValidationPipe({expectedType:FollowUpQueryDto,transform:true,whitelist:true})) query:FollowUpQueryDto,@CurrentUser() user:AuthUser){return this.service.legacy(query,user)}
  @Get("rescheduling/followUps/cases") @Roles(Role.RECEPTIONIST,Role.MANAGER,Role.ADMIN)
  cases(@Query(new ValidationPipe({expectedType:FollowUpCasesQueryDto,transform:true,whitelist:true})) query:FollowUpCasesQueryDto,@CurrentUser() user:AuthUser){return this.service.cases(query,user)}
  @Get("rescheduling/followUps/:notificationId/contactAttempts") @Roles(Role.RECEPTIONIST,Role.MANAGER,Role.ADMIN)

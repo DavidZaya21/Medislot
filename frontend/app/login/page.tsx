@@ -26,7 +26,7 @@ export default function LoginPage() {
       const auth = await login(String(form.get("email")), String(form.get("password")));
       window.sessionStorage.removeItem("medislot.accountClosed");
       const destination = returnDestination(new URLSearchParams(window.location.search).get("next"));
-      router.push(destination ?? (auth.role === "PATIENT" ? "/calendars" : "/"));
+      router.push(destination ?? (auth.role === "ADMIN" || auth.role === "MANAGER" || auth.role === "RECEPTIONIST" ? "/appointments" : auth.role === "PATIENT" ? "/calendars" : "/"));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Login failed");
     } finally {

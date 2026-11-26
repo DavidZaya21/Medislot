@@ -203,7 +203,7 @@ paths:
     delete:
       tags: [Users]
       summary: Delete a user account
-      description: ADMIN only. Patient accounts must use own-account closure; hard deletion is rejected. Closed-patient appointment history cannot be erased through doctor deletion.
+      description: ADMIN only. Patient accounts must use own-account closure; hard deletion is rejected. All appointment and status/rescheduling history is retained; referenced audit actors cannot be hard-deleted.
       operationId: deleteUserById
       security:
         - bearerAuth: []
@@ -425,7 +425,7 @@ paths:
     delete:
       tags: [Doctors]
       summary: Delete a doctor account and profile
-      description: Deletes both the doctor row and the linked user account.
+      description: ADMIN only. Returns 409 if any appointment or status/rescheduling audit would be erased; records must be retained.
       operationId: deleteDoctorById
       security:
         - bearerAuth: []
@@ -440,6 +440,9 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+
+        "409":
+          $ref: "#/components/responses/Conflict"
 
   /doctors/{doctorId}/appointments:
     get:
@@ -566,7 +569,7 @@ paths:
     get:
       tags: [Calendars]
       summary: List calendar slots
-      description: Patients receive only future, published, unblocked, unbooked slots; booking-status filters cannot broaden this visibility. Staff retain calendar access and may filter by booking status. Dates use Europe/Warsaw clinic days. Valid filters with no matches return an empty data array.
+      description: Patients receive only future, published, unblocked, unbooked slots; booking-status filters cannot broaden this visibility. Staff, including MANAGER, retain calendar read access and may filter by booking status. Manager calendar reads do not grant calendar create/update/delete permission; existing preview/publish/block permissions are unchanged. Manager nested doctor identities omit contact/profile data. Dates use Europe/Warsaw clinic days. Valid filters with no matches return an empty data array.
       operationId: listCalendarSlots
       security:
         - bearerAuth: []
@@ -627,10 +630,10 @@ paths:
       description: >
         ADMIN and MANAGER only. Accepts offset-qualified timestamps and requires startTime
         before endTime. In a doctor-locked transaction, blocks existing published slots
-        where slot.startTime < endTime and slot.endTime > startTime, and changes only
+        where slot.startTime > post-lock server time, slot.startTime < endTime and slot.endTime > startTime. Started and ended slots remain unchanged. It changes only
         CONFIRMED appointments on those slots to NEEDS_RESCHEDULING. Appointment identity,
         reason and original slot times are preserved. Repeating the same block is safe.
-        Each changed appointment version increments; repeating a block without changing status does not increment it.
+        Each changed appointment version increments and appends an atomic status-transition audit with actor and server time; repeating a block without changing status does not increment it. Closed-patient appointments are not disrupted.
         Counts describe newly blocked slots and newly flagged appointments. Legacy/manual
         slots are excluded. No persistent unavailability interval is stored: later
         publication in a previously empty part of this range is not automatically blocked.
@@ -699,7 +702,7 @@ paths:
         laterDates earliest first. Ties use start time then slot ID. Requires future, published,
         unbooked, unblocked slots of matching duration, excluding the source and the patient's
         CONFIRMED overlaps (back-to-back allowed). Expired windows return empty groups.
-        Retrieval creates no holds, appointments or history. Selecting an alternative must be
+        Retrieval creates no holds, appointments or history. ADMIN retains read-only retrieval but cannot submit an alternative booking; POST /appointments allows only PATIENT and RECEPTIONIST. Selecting an alternative must be
         explicitly confirmed using POST /appointments to create a NEW booking, never reschedule.
       operationId: listInitialBookingAlternatives
       security:
@@ -867,6 +870,45 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+
+  /rescheduling/followUps/legacyAppointments:
+    get:
+      tags: [Appointments]
+      summary: Browse legacy disrupted appointments without a current notification
+      description: >-
+        RECEPTIONIST, MANAGER and ADMIN only. Read-only, paginated discovery restricted
+        to open patients' NEEDS_RESCHEDULING visits for which no notification exists for
+        the current appointment/version. Does not return ordinary appointments or create
+        notifications, jobs or historical events. Generic appointment serialization omits phone.
+        Managers/receptionists can confirm legacy cancellation from the follow-up page;
+        admin follow-up controls remain read-only with existing appointment management unchanged.
+      operationId: listLegacyDisruptedAppointments
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/PageSizeQuery"
+      responses:
+        "200":
+          description: Current legacy appointment snapshots and pagination
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Appointment"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /rescheduling/followUps/cases:
     get:
@@ -1080,7 +1122,7 @@ paths:
     get:
       tags: [Appointments]
       summary: List appointments
-      description: Use query parameters such as `status` to filter appointments for receptionist or doctor views.
+      description: ADMIN/RECEPTIONIST/MANAGER list all appointments with exact status filtering; DOCTOR receives assigned appointments only. Patients use their own user appointment endpoint. Manager read access does not permit ordinary booking, cancellation, rescheduling, outcomes or deletion; only existing disrupted recovery/cancellation is allowed. Manager nested identities omit contact details and profile metadata.
       operationId: listAppointments
       security:
         - bearerAuth: []
@@ -1099,13 +1141,17 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Appointment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "401":
           $ref: "#/components/responses/Unauthorized"
     post:
       tags: [Appointments]
       summary: Create a new appointment from an available calendar slot
       description: >
-        Online and staff-created bookings are confirmed immediately. Atomic initial booking. HTTP 409 with code SLOT_UNAVAILABLE means the selected slot
+        Only PATIENT (authenticated identity) and RECEPTIONIST may create appointments. ADMIN, MANAGER and DOCTOR receive 403, including when submitting a taken-slot alternative to this same endpoint. Admin list/detail/filter and cancellation/outcome permissions are unchanged. Online and receptionist-created bookings are confirmed immediately. Atomic initial booking. HTTP 409 with code SLOT_UNAVAILABLE means the selected slot
         was booked/blocked or lost its atomic claim; no appointment was created. Only this code
         should trigger GET /calendars/{calendarId}/alternatives. Patient overlap and other business
         conflicts retain CONFLICT; validation and ambiguous network failures must not trigger
@@ -1332,7 +1378,7 @@ paths:
     get:
       tags: [Appointments]
       summary: Get a single appointment by id
-      description: Patients may read only their own appointments; doctors only appointments assigned to them. Admins and receptionists retain access. Managers are forbidden.
+      description: Patients may read only their own appointments; doctors only appointments assigned to them. Admins, receptionists and managers may read any appointment. Manager read access does not expand mutation permissions. Manager nested identities contain only patient id/name/closedAt and doctor id/name/specialization.
       operationId: getAppointmentById
       security:
         - bearerAuth: []
@@ -1354,7 +1400,16 @@ paths:
     put:
       tags: [Appointments]
       summary: Update appointment status
-      description: Receptionists or clinic staff update operational statuses such as `CANCELLED` or `NO_SHOW`, and completed visits can be marked as `COMPLETED`.
+      description: >-
+        Requires displayed expectedVersion and currentCalendarId; stale/ABA requests return 409 with reload instructions.
+        PATIENT may cancel only their own visits; DOCTOR may update only assigned visits. ADMIN/RECEPTIONIST may update any visit.
+        MANAGER may only cancel a current unresolved disruption. CONFIRMED may become CANCELLED strictly before start;
+        COMPLETED or NO_SHOW require scheduled end <= server time and ADMIN/RECEPTIONIST/assigned DOCTOR.
+        NEEDS_RESCHEDULING may become CANCELLED without an original-time cutoff, but all roles must supply current
+        notificationId and disruptionVersion. For a genuine legacy disruption with no notification for the locked appointment/version, legacyDisruption=true explicitly permits cancellation with displayed version/calendar and no case fields; it never bypasses an existing notification. Terminal outcomes are immutable. Time and mutable state are rechecked after locks.
+        Authorized staff may record outcomes for retained closed-patient visits; closed-patient booking/moves/deletion stay forbidden.
+        Visit reason is preserved. Each transition increments version and atomically appends old/new status, actor and server timestamp.
+        Cancellation resolves cases/jobs and safely releases isBooked without clearing isBlocked; outcomes keep historical reservations.
       operationId: reviewAppointment
       security:
         - bearerAuth: []
@@ -1386,7 +1441,7 @@ paths:
     delete:
       tags: [Appointments]
       summary: Delete an appointment
-      description: Appointments awaiting rescheduling or with rescheduling history cannot be deleted; returns 409.
+      description: Appointment deletion is rejected with 409. Cancel eligible appointments instead; legacy records and all status/rescheduling history remain preserved.
       operationId: deleteAppointment
       security:
         - bearerAuth: []
@@ -2035,7 +2090,9 @@ components:
           format: date-time
           example: "2026-05-20T10:00:00Z"
         doctor:
-          $ref: "#/components/schemas/Doctor"
+          anyOf:
+            - $ref: "#/components/schemas/Doctor"
+            - $ref: "#/components/schemas/AppointmentDoctorSummary"
 
     CalendarCreateRequest:
       type: object
@@ -2066,11 +2123,45 @@ components:
         isBooked:
           type: boolean
 
+    AppointmentPatientSummary:
+      type: object
+      additionalProperties: false
+      required: [id, name, closedAt]
+      description: Minimal patient identity returned in manager appointment responses. No contact or credential fields.
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        closedAt: { type: [string, "null"], format: date-time }
+    AppointmentDoctorSummary:
+      type: object
+      additionalProperties: false
+      required: [id, userId, specialization, user]
+      properties:
+        id: { type: integer }
+        userId: { type: integer }
+        specialization:
+          anyOf:
+            - $ref: "#/components/schemas/Specialization"
+            - type: "null"
+        user:
+          type: object
+          additionalProperties: false
+          required: [id, name]
+          properties:
+            id: { type: integer }
+            name: { type: string }
+
     Appointment:
       type: object
       required:
         [id, patientId, doctorId, calendarId, status, reason, version, patient, doctor]
       properties:
+        disruption:
+          type: [object, "null"]
+          description: Current unresolved disruption identity for confirming cancellation; null for other statuses.
+          properties:
+            notificationId: { type: integer }
+            disruptionVersion: { type: integer }
         id:
           type: integer
           format: int32
@@ -2094,7 +2185,7 @@ components:
           type: integer
           minimum: 1
           readOnly: true
-          description: Starts at 1; increments on moves, status/reason updates and blocking transitions. Not a move count.
+          description: Starts at 1; increments on successful moves and status transitions, including blocking and closure. Not a move count.
         rescheduleCount:
           type: integer
           minimum: 0
@@ -2118,9 +2209,13 @@ components:
           example: "2026-05-20T14:30:00Z"
           description: Read-only value derived from the linked calendar slot.
         patient:
-          $ref: "#/components/schemas/User"
+          anyOf:
+            - $ref: "#/components/schemas/User"
+            - $ref: "#/components/schemas/AppointmentPatientSummary"
         doctor:
-          $ref: "#/components/schemas/Doctor"
+          anyOf:
+            - $ref: "#/components/schemas/Doctor"
+            - $ref: "#/components/schemas/AppointmentDoctorSummary"
 
     RescheduleAppointmentRequest:
       type: object
@@ -2204,17 +2299,21 @@ components:
 
     AppointmentUpdateRequest:
       type: object
-      required: [status, reason]
+      required: [status, currentCalendarId, expectedVersion]
       properties:
-        notificationId: { type: integer, minimum: 1, description: Follow-up cancellation case. Supply all four identity fields together. }
+        legacyDisruption:
+          type: boolean
+          description: Explicit acknowledgement for cancelling NEEDS_RESCHEDULING when no notification exists for its current appointment/version. Requires expectedVersion/currentCalendarId and no notification identity. Rejected if a current notification row exists, including a resolved/detached one. Creates only a cancellation audit now, never a historical notice/event.
+        notificationId: { type: integer, minimum: 1, description: Required for every disrupted cancellation; identifies the current unresolved case. }
         disruptionVersion: { type: integer, minimum: 1 }
         currentCalendarId: { type: integer, minimum: 1 }
-        expectedVersion: { type: integer, minimum: 1, description: Checked against locked state. Queue cancellation requires exact case/calendar/version; manager cancellation requires these fields and an unresolved disruption. }
+        expectedVersion: { type: integer, minimum: 1, description: Required displayed version. Every status action rejects stale/ABA state with 409 and requires explicit reload. }
         status:
           type: string
-          enum: [CONFIRMED, CANCELLED, COMPLETED, NO_SHOW]
-          description: NEEDS_RESCHEDULING is server-assigned; such appointments may only be cancelled here.
+          enum: [CANCELLED, COMPLETED, NO_SHOW]
+          description: Confirmed cancellation is before start; outcomes are after end. Disrupted visits can only cancel here with current case identity.
         reason:
           type: string
-          minLength: 5
           maxLength: 500
+          deprecated: true
+          description: Legacy compatibility field; ignored. The stored visit reason never changes during status transitions.
